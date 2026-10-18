@@ -33,7 +33,10 @@ go.work.sum
 # .vscode/
 
 # lessarr
+#
+# Anchor the binary patterns. A bare "lessarr" also matches the cmd/lessarr
+# directory, which silently untracks the whole main package.
 /bin/
-lessarr
+/lessarr
 *.tmp.mkv
-config.toml
+/config.toml

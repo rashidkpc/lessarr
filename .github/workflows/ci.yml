@@ -34,6 +34,12 @@ jobs:
       - name: vet
         run: go vet ./...
 
+      # Explicit, because `go test ./...` passes happily when the main package
+      # is missing entirely. This is what catches a .gitignore pattern that
+      # swallows a source directory.
+      - name: build
+        run: go build ./cmd/lessarr
+
       - name: test
         run: go test -count=1 ./...
 
