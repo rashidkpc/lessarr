@@ -48,6 +48,10 @@ lessarr probe --accurate /media/movies/Example.mkv
 # Walk a whole library and report the projected outcome. Read-only.
 lessarr stats --config config.toml --top 20 --reasons
 
+# Check this host: GPU, drivers, encoders, permissions, filesystem. Reads
+# nothing and removes the one temporary file it creates.
+lessarr selftest /media
+
 # Check a config file before trusting it.
 lessarr config-validate --config config.toml
 ```
@@ -55,6 +59,22 @@ lessarr config-validate --config config.toml
 `stats` prints, per library, how many files land in each action and what the
 projected size change is. That is the number to argue with before letting
 lessarr write anything. Start with `config.example.toml`.
+
+`selftest` is the first thing to run on a new machine. It does not assume the
+hardware works — it loads the driver, runs a short synthetic encode through each
+backend, decode-verifies the result, and reports the throughput. It also flags
+source codecs that have no hardware decoder, because those need a different
+filter chain and fail at runtime otherwise.
+
+## Docker
+
+```sh
+docker build --platform linux/amd64 -t ghcr.io/rashidkpc/lessarr:edge .
+docker run --rm -v /path/to/media:/media:ro ghcr.io/rashidkpc/lessarr:edge selftest /media
+```
+
+For a low-power host specifically — including the Docker client quirks, the
+compose project setup and a config you can paste — see **[docs/remote share.md](docs/remote share.md)**.
 
 ## How the decision is made
 
