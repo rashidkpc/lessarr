@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # ffprobe is needed by the tests that shell out to it. The hardware code
+      # paths are covered by golden argv tests, which need no GPU and no ffmpeg.
+      - name: install ffmpeg
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "these files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: vet
+        run: go vet ./...
+
+      - name: test
+        run: go test -count=1 ./...
+
+# The image job lands with the Dockerfile in M4. It needs
+#   permissions: packages: write
+# and pushes ghcr.io/${{ github.repository }} pinned by short SHA. Note that the
+# first publish creates the package private; it must be flipped to public in
+# the package settings, or Docker client cannot pull it anonymously.

@@ -1,0 +1,770 @@
+# Decision table.
+#
+# Each case is a synthetic file description, not real media: the engine only
+# consumes probe facts, so hand-written cases let us cover codecs we cannot
+# synthesize (VC-1, DTS-HD MA, TrueHD, PGS) and keep the test hermetic.
+#
+# Sizes are consistent with bitrate x duration so that the projected-savings
+# arithmetic stays honest.
+
+# --- 1..13: Skip -------------------------------------------------------------
+
+[[case]]
+name = "hevc 1080p already compliant"
+codec = "hevc"
+width = 1920
+height = 1080
+fps = 23.976
+bitrate_kbps = 2200
+size_mb = 2048
+duration_s = 7200
+container = "matroska,webm"
+action = "skip"
+codes = ["compliant"]
+[[case.audio]]
+codec = "eac3"
+channels = 6
+lang = "eng"
+default = true
+[[case.sub]]
+codec = "subrip"
+lang = "eng"
+
+[[case]]
+name = "hevc 720p compliant"
+codec = "hevc"
+width = 1280
+height = 720
+fps = 23.976
+bitrate_kbps = 1200
+size_mb = 1126
+duration_s = 7200
+container = "matroska,webm"
+action = "skip"
+codes = ["compliant"]
+[[case.audio]]
+codec = "aac"
+channels = 2
+lang = "eng"
+default = true
+
+[[case]]
+name = "hdr10 never transcoded"
+codec = "hevc"
+width = 3840
+height = 2160
+fps = 23.976
+bitrate_kbps = 45000
+size_mb = 61440
+duration_s = 7200
+container = "matroska,webm"
+hdr = "hdr10"
+action = "skip"
+codes = ["hdr_policy"]
+[[case.audio]]
+codec = "truehd"
+profile = "Dolby TrueHD + Dolby Atmos"
+channels = 8
+lang = "eng"
+default = true
+
+[[case]]
+name = "dolby vision 8.1 never transcoded"
+codec = "hevc"
+width = 3840
+height = 2160
+fps = 23.976
+bitrate_kbps = 60000
+size_mb = 71680
+duration_s = 7200
+container = "matroska,webm"
+hdr = "dovi"
+dovi_profile = 8
+action = "skip"
+codes = ["hdr_policy"]
+[[case.audio]]
+codec = "truehd"
+channels = 8
+lang = "eng"
+default = true
+
+[[case]]
+name = "dolby vision profile 5 never transcoded"
+codec = "hevc"
+width = 3840
+height = 2160
+fps = 23.976
+bitrate_kbps = 25000
+size_mb = 30720
+duration_s = 7200
+container = "matroska,webm"
+hdr = "dovi"
+dovi_profile = 5
+action = "skip"
+codes = ["hdr_policy"]
+[[case.audio]]
+codec = "eac3"
+channels = 6
+lang = "eng"
+default = true
+
+[[case]]
+name = "av1 compliant"
+codec = "av1"
+width = 1920
+height = 1080
+fps = 23.976
+bitrate_kbps = 1500
+size_mb = 1433
+duration_s = 7200
+container = "matroska,webm"
+action = "skip"
+codes = ["compliant"]
+[[case.audio]]
+codec = "opus"
+channels = 6
+lang = "eng"
+default = true
+[[case.sub]]
+codec = "subrip"
+lang = "eng"
+
+[[case]]
+name = "sub-480p line skipped"
+codec = "h264"
+width = 352
+height = 288
+fps = 25
+bitrate_kbps = 800
+size_mb = 270
+duration_s = 2700
+container = "avi"
+action = "skip"
+codes = ["below_min_long_edge"]
+[[case.audio]]
+codec = "mp3"
+channels = 2
+lang = "eng"
+default = true
+
+[[case]]
+name = "tiny file skipped"
+codec = "h264"
+width = 1920
+height = 1080
+fps = 23.976
+bitrate_kbps = 4000
+size_mb = 180
+duration_s = 480
+container = "matroska,webm"
+action = "skip"
+codes = ["below_min_size"]
+[[case.audio]]
+codec = "aac"
+channels = 2
+lang = "eng"
+default = true
+
+[[case]]
+name = "text subtitle pruning does not justify a rewrite"
+codec = "hevc"
+width = 1920
+height = 1080
+fps = 23.976
+bitrate_kbps = 2500
+size_mb = 2150
+duration_s = 7200
+container = "matroska,webm"
+action = "skip"
+codes = ["compliant", "remux_below_bar"]
+[[case.audio]]
+codec = "eac3"
+channels = 6
+lang = "eng"
+default = true
+[[case.sub]]
+codec = "subrip"
+lang = "eng"
+[[case.sub]]
+codec = "subrip"
+profile = "SDH"
+lang = "eng"
+[[case.sub]]
+codec = "subrip"
+lang = "fre"
+[[case.sub]]
+codec = "subrip"
+lang = "deu"
+
+[[case]]
+name = "pgs pruning alone does not justify a rewrite"
+codec = "hevc"
+width = 1920
+height = 1080
+fps = 23.976
+bitrate_kbps = 2500
+size_mb = 2110
+duration_s = 7200
+container = "matroska,webm"
+action = "skip"
+codes = ["compliant", "remux_below_bar"]
+[[case.audio]]
+codec = "eac3"
+channels = 6
+lang = "eng"
+default = true
+[[case.sub]]
+codec = "hdmv_pgs_subtitle"
+lang = "eng"
+[[case.sub]]
+codec = "hdmv_pgs_subtitle"
+lang = "fre"
+[[case.sub]]
+codec = "hdmv_pgs_subtitle"
+lang = "deu"
+
+[[case]]
+name = "lessarr output is never reprocessed"
+codec = "hevc"
+width = 1920
+height = 1080
+fps = 23.976
+bitrate_kbps = 3000
+size_mb = 2560
+duration_s = 7200
+container = "matroska,webm"
+tagged = true
+action = "skip"
+codes = ["provenance"]
+[[case.audio]]
+codec = "eac3"
+channels = 6
+lang = "eng"
+default = true
+
+[[case]]
+name = "already starved h264 is left alone"
+codec = "h264"
+width = 1920
+height = 1080
+fps = 23.976
+bitrate_kbps = 1200
+size_mb = 800
+duration_s = 7200
+container = "matroska,webm"
+action = "skip"
+codes = ["starved_source"]
+[[case.audio]]
+codec = "eac3"
+channels = 6
+lang = "eng"
+default = true
+
+[[case]]
+name = "mp4 with one audio track is fine for mpv"
+codec = "hevc"
+width = 1920
+height = 1080
+fps = 23.976
+bitrate_kbps = 2000
+size_mb = 1843
+duration_s = 7200
+container = "mov,mp4,m4a,3gp,3g2,mj2"
+action = "skip"
+codes = ["compliant"]
+[[case.audio]]
+codec = "aac"
+channels = 2
+lang = "eng"
+default = true
+
+# --- 14..17: Remux -----------------------------------------------------------
+
+[[case]]
+name = "lossless converted when no lossy alternative"
+codec = "hevc"
+width = 1920
+height = 1080
+fps = 23.976
+bitrate_kbps = 2000
+size_mb = 5529
+duration_s = 7200
+container = "matroska,webm"
+action = "remux"
+codes = ["lossless_convert"]
+[[case.audio]]
+codec = "truehd"
+channels = 8
+lang = "eng"
+default = true
+
+[[case]]
+name = "lossless dropped when a lossy english track exists"
+codec = "hevc"
+width = 1920
+height = 1080
+fps = 23.976
+bitrate_kbps = 3000
+size_mb = 8089
+duration_s = 7200
+container = "matroska,webm"
+action = "remux"
+codes = ["lossless_drop", "audio_prune", "sub_prune"]
+[[case.audio]]
+codec = "dts"
+profile = "DTS-HD MA"
+channels = 8
+lang = "eng"
+default = true
+[[case.audio]]
+codec = "ac3"
+channels = 6
+lang = "eng"
+[[case.sub]]
+codec = "hdmv_pgs_subtitle"
+lang = "eng"
+[[case.sub]]
+codec = "hdmv_pgs_subtitle"
+lang = "fre"
+[[case.sub]]
+codec = "hdmv_pgs_subtitle"
+lang = "spa"
+[[case.sub]]
+codec = "hdmv_pgs_subtitle"
+lang = "deu"
+
+[[case]]
+name = "flac stereo converted at stereo bitrate"
+codec = "hevc"
+width = 1920
+height = 1080
+fps = 23.976
+bitrate_kbps = 2500
+size_mb = 3226
+duration_s = 7200
+container = "matroska,webm"
+action = "remux"
+codes = ["lossless_convert"]
+[[case.audio]]
+codec = "flac"
+channels = 2
+lang = "eng"
+default = true
+
+[[case]]
+name = "mp4 multi-audio with pgs remuxed to mkv"
+codec = "hevc"
+width = 1920
+height = 1080
+fps = 23.976
+bitrate_kbps = 2000
+size_mb = 2202
+duration_s = 7200
+container = "mov,mp4,m4a,3gp,3g2,mj2"
+action = "remux"
+codes = ["audio_prune", "container_remux"]
+[[case.audio]]
+codec = "aac"
+channels = 2
+lang = "eng"
+[[case.audio]]
+codec = "aac"
+channels = 2
+lang = "fre"
+default = true
+[[case.audio]]
+codec = "ac3"
+channels = 6
+lang = "spa"
+[[case.sub]]
+codec = "hdmv_pgs_subtitle"
+lang = "eng"
+[[case.sub]]
+codec = "hdmv_pgs_subtitle"
+lang = "fre"
+
+# --- 18..30: Transcode -------------------------------------------------------
+
+[[case]]
+name = "dvd mpeg2 interlaced"
+codec = "mpeg2video"
+width = 720
+height = 480
+fps = 29.97
+bitrate_kbps = 5000
+size_mb = 1729
+duration_s = 2700
+container = "avi"
+field_order = "tt"
+action = "transcode"
+codes = ["codec_gap", "interlaced"]
+[[case.audio]]
+codec = "mp3"
+channels = 2
+lang = "eng"
+default = true
+
+[[case]]
+name = "pal dvd mpeg2 interlaced"
+codec = "mpeg2video"
+width = 720
+height = 576
+fps = 25
+bitrate_kbps = 6500
+size_mb = 2441
+duration_s = 3000
+container = "matroska,webm"
+field_order = "tt"
+action = "transcode"
+codes = ["codec_gap", "interlaced"]
+[[case.audio]]
+codec = "ac3"
+channels = 2
+lang = "eng"
+default = true
+
+[[case]]
+name = "bluray h264 with lossless and a lossy fallback"
+codec = "h264"
+width = 1920
+height = 1080
+fps = 23.976
+bitrate_kbps = 8000
+size_mb = 8704
+duration_s = 7200
+container = "matroska,webm"
+action = "transcode"
+codes = ["codec_gap", "lossless_drop", "audio_prune"]
+[[case.audio]]
+codec = "dts"
+profile = "DTS-HD MA"
+channels = 6
+lang = "eng"
+default = true
+[[case.audio]]
+codec = "ac3"
+channels = 6
+lang = "eng"
+[[case.sub]]
+codec = "hdmv_pgs_subtitle"
+lang = "eng"
+[[case.sub]]
+codec = "hdmv_pgs_subtitle"
+lang = "fre"
+
+[[case]]
+name = "h264 1080i broadcast transport stream"
+codec = "h264"
+width = 1920
+height = 1080
+fps = 29.97
+bitrate_kbps = 6000
+size_mb = 2025
+duration_s = 2700
+container = "mpegts"
+field_order = "tt"
+action = "transcode"
+codes = ["codec_gap", "interlaced"]
+[[case.audio]]
+codec = "ac3"
+channels = 6
+lang = "eng"
+default = true
+
+[[case]]
+name = "hevc but wasteful bitrate"
+codec = "hevc"
+width = 1920
+height = 1080
+fps = 23.976
+bitrate_kbps = 12000
+size_mb = 11059
+duration_s = 7200
+container = "matroska,webm"
+action = "transcode"
+codes = ["bpp_wasteful", "lossless_drop", "audio_prune"]
+[[case.audio]]
+codec = "truehd"
+channels = 8
+lang = "eng"
+default = true
+[[case.audio]]
+codec = "ac3"
+channels = 6
+lang = "eng"
+[[case.sub]]
+codec = "hdmv_pgs_subtitle"
+lang = "eng"
+forced = true
+[[case.sub]]
+codec = "hdmv_pgs_subtitle"
+lang = "eng"
+[[case.sub]]
+codec = "hdmv_pgs_subtitle"
+lang = "fre"
+
+[[case]]
+name = "h264 720p"
+codec = "h264"
+width = 1280
+height = 720
+fps = 23.976
+bitrate_kbps = 1800
+size_mb = 1638
+duration_s = 7200
+container = "matroska,webm"
+action = "transcode"
+codes = ["codec_gap"]
+[[case.audio]]
+codec = "aac"
+channels = 2
+lang = "eng"
+default = true
+
+[[case]]
+name = "vc1 bluray remux"
+codec = "vc1"
+width = 1920
+height = 1080
+fps = 23.976
+bitrate_kbps = 20000
+size_mb = 18432
+duration_s = 7200
+container = "matroska,webm"
+action = "transcode"
+codes = ["codec_gap", "lossless_convert"]
+[[case.audio]]
+codec = "dts"
+profile = "DTS-HD MA"
+channels = 6
+lang = "eng"
+default = true
+
+[[case]]
+name = "old sdr 640x480 rip"
+codec = "h264"
+width = 640
+height = 480
+fps = 23.976
+bitrate_kbps = 1200
+size_mb = 810
+duration_s = 5400
+container = "avi"
+action = "transcode"
+codes = ["codec_gap"]
+[[case.audio]]
+codec = "mp3"
+channels = 2
+lang = "eng"
+default = true
+
+[[case]]
+name = "h264 1080p mp4 single audio"
+codec = "h264"
+width = 1920
+height = 1080
+fps = 23.976
+bitrate_kbps = 10000
+size_mb = 7112
+duration_s = 5700
+container = "mov,mp4,m4a,3gp,3g2,mj2"
+action = "transcode"
+codes = ["codec_gap"]
+[[case.audio]]
+codec = "aac"
+channels = 2
+lang = "eng"
+default = true
+
+[[case]]
+name = "anime dual audio with foreign subs"
+codec = "hevc"
+width = 1920
+height = 1080
+fps = 23.976
+bitrate_kbps = 10000
+size_mb = 1800
+duration_s = 1440
+container = "matroska,webm"
+action = "transcode"
+codes = ["bpp_wasteful", "sub_prune"]
+[[case.audio]]
+codec = "ac3"
+channels = 6
+lang = "jpn"
+default = true
+[[case.audio]]
+codec = "ac3"
+channels = 6
+lang = "eng"
+[[case.sub]]
+codec = "hdmv_pgs_subtitle"
+lang = "eng"
+[[case.sub]]
+codec = "hdmv_pgs_subtitle"
+lang = "jpn"
+
+[[case]]
+name = "1080i with three audio tracks"
+codec = "h264"
+width = 1920
+height = 1080
+fps = 29.97
+bitrate_kbps = 8000
+size_mb = 2700
+duration_s = 2700
+container = "matroska,webm"
+field_order = "tt"
+action = "transcode"
+codes = ["codec_gap", "interlaced", "audio_prune"]
+[[case.audio]]
+codec = "ac3"
+channels = 6
+lang = "eng"
+[[case.audio]]
+codec = "ac3"
+channels = 6
+lang = "fre"
+default = true
+[[case.audio]]
+codec = "ac3"
+channels = 6
+lang = "spa"
+
+[[case]]
+name = "xvid avi"
+codec = "mpeg4"
+width = 720
+height = 400
+fps = 23.976
+bitrate_kbps = 1000
+size_mb = 675
+duration_s = 5400
+container = "avi"
+action = "transcode"
+codes = ["codec_gap"]
+[[case.audio]]
+codec = "mp3"
+channels = 2
+lang = "eng"
+default = true
+
+[[case]]
+name = "4k sdr h264 remux"
+codec = "h264"
+width = 3840
+height = 2160
+fps = 23.976
+bitrate_kbps = 35000
+size_mb = 31744
+duration_s = 7200
+container = "matroska,webm"
+action = "transcode"
+codes = ["codec_gap", "lossless_drop", "audio_prune"]
+[[case.audio]]
+codec = "truehd"
+channels = 8
+lang = "eng"
+default = true
+[[case.audio]]
+codec = "ac3"
+channels = 6
+lang = "eng"
+
+# --- extra: policies that are not in the original table ----------------------
+
+[[case]]
+name = "10-bit hevc is never re-encoded by default"
+codec = "hevc"
+width = 1920
+height = 1080
+fps = 23.976
+bitrate_kbps = 12000
+bit_depth = 10
+size_mb = 11059
+duration_s = 7200
+container = "matroska,webm"
+action = "skip"
+codes = ["ten_bit_hevc"]
+[[case.audio]]
+codec = "flac"
+channels = 2
+lang = "jpn"
+default = true
+
+[[case]]
+name = "10-bit hevc is re-encoded when explicitly allowed"
+codec = "hevc"
+width = 1920
+height = 1080
+fps = 23.976
+bitrate_kbps = 12000
+bit_depth = 10
+size_mb = 11059
+duration_s = 7200
+container = "matroska,webm"
+allow_10bit = true
+action = "transcode"
+codes = ["bpp_wasteful", "lossless_convert"]
+[[case.audio]]
+codec = "flac"
+channels = 2
+lang = "jpn"
+default = true
+
+[[case]]
+name = "monitor mode never acts"
+codec = "mpeg2video"
+width = 720
+height = 480
+fps = 29.97
+bitrate_kbps = 5000
+size_mb = 1729
+duration_s = 2700
+container = "avi"
+mode = "monitor"
+action = "skip"
+codes = ["monitor_mode"]
+[[case.audio]]
+codec = "mp3"
+channels = 2
+lang = "eng"
+default = true
+
+[[case]]
+name = "remux-only library refuses to re-encode video"
+codec = "h264"
+width = 1920
+height = 1080
+fps = 23.976
+bitrate_kbps = 8000
+size_mb = 8704
+duration_s = 7200
+container = "matroska,webm"
+mode = "remux"
+action = "skip"
+codes = ["transcode_disallowed"]
+[[case.audio]]
+codec = "eac3"
+channels = 6
+lang = "eng"
+default = true
+
+[[case]]
+name = "downscale cap scales when exceeded"
+codec = "h264"
+width = 3840
+height = 2160
+fps = 23.976
+bitrate_kbps = 35000
+size_mb = 31744
+duration_s = 7200
+container = "matroska,webm"
+max_long_edge = 1920
+action = "transcode"
+codes = ["codec_gap"]
+[[case.audio]]
+codec = "ac3"
+channels = 6
+lang = "eng"
+default = true

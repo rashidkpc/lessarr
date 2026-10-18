@@ -1,0 +1,43 @@
+lessarr
+Copyright (C) 2026 Rashid Kpc
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with
+this program. If not, see <https://www.gnu.org/licenses/>.
+
+---
+
+Third-party components
+
+The source tree itself depends only on the Go module github.com/BurntSushi/toml
+(MIT), whose license ships with the module.
+
+The published container image bundles additional third-party software that is
+not part of this repository's source. Those components remain under their own
+licenses, and distributing the image means distributing them:
+
+  Jellyfin FFmpeg            GPL-3.0 (or later), depending on build options
+                             https://github.com/jellyfin/jellyfin-ffmpeg
+  FFmpeg                     LGPL-2.1+ / GPL-2.0+, depending on build options
+                             https://ffmpeg.org/legal.html
+  Intel media driver (iHD)   MIT
+                             https://github.com/intel/media-driver
+  Intel oneVPL / Media SDK   MIT
+                             https://github.com/intel/libvpl
+  Debian base image          various free software licenses
+                             https://www.debian.org/legal/licenses/
+
+Corresponding source for the GPL components is available from the projects
+linked above. lessarr does not modify them; they are invoked as separate
+executables by the container.
+
+No media files, no user configuration and no credentials are ever included in
+the image.

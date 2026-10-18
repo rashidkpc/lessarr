@@ -31,3 +31,9 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# lessarr
+/bin/
+lessarr
+*.tmp.mkv
+config.toml
