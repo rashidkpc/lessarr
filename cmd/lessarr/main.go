@@ -293,6 +293,9 @@ func printProbe(w io.Writer, info *probe.MediaInfo, lib config.Library, d decisi
 	fmt.Fprintf(w, "video:      %s %dx%d %.3gfps %d-bit bpp=%.3f %s",
 		codec(info.Video.Codec), info.Video.Width, info.Video.Height, info.Video.FPS,
 		info.Video.BitDepth, info.BPP(), hdrLabel(info.Video.HDR))
+	if info.Video.EncoderTag != "" {
+		fmt.Fprintf(w, " encoder=%q", info.Video.EncoderTag)
+	}
 	if info.Video.Interlaced() {
 		fmt.Fprint(w, " interlaced")
 	}
@@ -336,7 +339,11 @@ func printProbe(w io.Writer, info *probe.MediaInfo, lib config.Library, d decisi
 
 	fmt.Fprintf(w, "\ndecision:   %s\n", d.String())
 	if d.Action != decision.Skip {
-		fmt.Fprintf(w, "projected:  %s\n", humanBytes(d.EstimatedOutputBytes))
+		if d.VideoSavingsUnmeasured {
+			fmt.Fprintf(w, "projection: video savings unmeasured; audio-only estimate %s\n", humanBytes(d.EstimatedOutputBytes))
+		} else {
+			fmt.Fprintf(w, "projected:  %s\n", humanBytes(d.EstimatedOutputBytes))
+		}
 		fmt.Fprintf(w, "backend:    %s\n", backend)
 		if d.ScaleTo != nil {
 			fmt.Fprintf(w, "scale:      %dx%d\n", d.ScaleTo.W, d.ScaleTo.H)
@@ -477,7 +484,10 @@ func cmdStats(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 				code = d.Codes[0]
 			}
 			mu.Lock()
-			results = append(results, statResult{lib: name, size: info.Size, out: out, act: d.Action, code: code, path: path})
+			results = append(results, statResult{
+				lib: name, size: info.Size, out: out, act: d.Action, code: code, path: path,
+				videoSavingsUnmeasured: d.VideoSavingsUnmeasured,
+			})
 			mu.Unlock()
 		}
 	}
@@ -508,12 +518,13 @@ func cmdStats(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 
 // statResult is one file's outcome during a stats walk.
 type statResult struct {
-	lib  string
-	size int64
-	out  int64
-	act  decision.Action
-	code decision.Code
-	path string
+	lib                    string
+	size                   int64
+	out                    int64
+	act                    decision.Action
+	code                   decision.Code
+	path                   string
+	videoSavingsUnmeasured bool
 }
 
 func printStats(w io.Writer, results []statResult, topN int, showReasons bool, writeByLib map[string]bool) {
@@ -534,6 +545,7 @@ func printStats(w io.Writer, results []statResult, topN int, showReasons bool, w
 		skipN, remuxN, transN int
 		skipB, remuxB, transB int64
 		outB                  int64
+		unmeasuredVideoN      int
 		codes                 map[decision.Code]int
 	}
 	groups := map[string]*bucket{}
@@ -546,6 +558,9 @@ func printStats(w io.Writer, results []statResult, topN int, showReasons bool, w
 		b.files++
 		b.bytes += r.size
 		b.codes[r.code]++
+		if r.videoSavingsUnmeasured {
+			b.unmeasuredVideoN++
+		}
 		switch r.act {
 		case decision.Skip:
 			b.skipN++
@@ -589,6 +604,12 @@ func printStats(w io.Writer, results []statResult, topN int, showReasons bool, w
 		}
 		fmt.Fprintf(w, "  projected    %s -> %s  (saves %s, %.0f%%)\n",
 			humanBytes(b.bytes), humanBytes(b.outB), humanBytes(saved), pct)
+		if b.codes[decision.CodeCodecGap] > 0 {
+			fmt.Fprintf(w, "  note         codec-gap video savings are modeled, not measured\n")
+		}
+		if b.unmeasuredVideoN > 0 {
+			fmt.Fprintf(w, "  note         video savings unmeasured for %d transcode(s); excluded from projection\n", b.unmeasuredVideoN)
+		}
 		if showReasons {
 			fmt.Fprintf(w, "  reasons:\n")
 			type kv struct {
@@ -613,6 +634,18 @@ func printStats(w io.Writer, results []statResult, topN int, showReasons bool, w
 	}
 	fmt.Fprintf(w, "total          %s -> %s  (saves %s, %.0f%%)\n",
 		humanBytes(totalSize), humanBytes(totalOut), humanBytes(saved), pct)
+	totalCodecGap := 0
+	totalUnmeasured := 0
+	for _, b := range groups {
+		totalCodecGap += b.codes[decision.CodeCodecGap]
+		totalUnmeasured += b.unmeasuredVideoN
+	}
+	if totalCodecGap > 0 {
+		fmt.Fprintln(w, "note           codec-gap video savings are modeled, not measured")
+	}
+	if totalUnmeasured > 0 {
+		fmt.Fprintf(w, "note           video savings unmeasured for %d transcode(s); excluded from projection\n", totalUnmeasured)
+	}
 
 	if topN > 0 && saved > 0 {
 		sorted := make([]statResult, len(results))

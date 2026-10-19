@@ -34,6 +34,7 @@ the rest.
 | Target | HEVC 8-bit, MKV, direct-play friendly |
 | HDR / Dolby Vision | never transcoded — skipped by policy |
 | 10-bit HEVC | never re-encoded (hardware here outputs 8-bit only) |
+| Prior Intel hardware HEVC | skipped when the stream tag identifies `hevc_vaapi` or `hevc_qsv` |
 | Audio | keeps default/original-language + English; lossless → E-AC-3 unless a lossy track already covers it |
 | Subtitles | keeps forced tracks + English + French; no OCR |
 | Already-good files | skipped, with the passing checks named |
@@ -115,6 +116,12 @@ record one — which MKV usually does not.
 Re-encode loops are prevented by four independent guards: a provenance tag
 written into every output, a database record, a higher savings bar for
 already-efficient codecs, and a per-file encode budget.
+
+The library already contains many prior `hevc_vaapi` encodes. Those are skipped
+to avoid stacking another lossy hardware generation. For other already-modern
+video that crosses the high-bitrate threshold, `stats` marks video savings as
+unmeasured and excludes them from the projection; codec-generation projections
+(for example H.264→HEVC) remain modeled, not measured.
 
 Resolution is preserved by default. When a cap is configured it applies to the
 **long edge**, never the height, so that a 2.40:1 film is not silently

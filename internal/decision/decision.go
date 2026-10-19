@@ -33,6 +33,7 @@ type Code string
 const (
 	CodeCompliant           Code = "compliant"
 	CodeProvenance          Code = "provenance"
+	CodeHardwareProvenance  Code = "hardware_provenance"
 	CodeMonitorMode         Code = "monitor_mode"
 	CodeBelowMinDuration    Code = "below_min_duration"
 	CodeBelowMinSize        Code = "below_min_size"
@@ -79,8 +80,9 @@ type Decision struct {
 	Deinterlace bool  `json:"deinterlace,omitempty"`
 	ScaleTo     *Size `json:"scale_to,omitempty"`
 
-	EstimatedSavings     float64 `json:"estimated_savings"` // 0..1
-	EstimatedOutputBytes int64   `json:"estimated_output_bytes"`
+	EstimatedSavings       float64 `json:"estimated_savings"` // 0..1
+	EstimatedOutputBytes   int64   `json:"estimated_output_bytes"`
+	VideoSavingsUnmeasured bool    `json:"video_savings_unmeasured,omitempty"`
 }
 
 // Options are facts that do not come from the media file itself.
@@ -109,7 +111,9 @@ func (d Decision) String() string {
 		}
 		fmt.Fprintf(&b, " [%s]", strings.Join(parts, ", "))
 	}
-	if d.EstimatedSavings > 0 {
+	if d.VideoSavingsUnmeasured {
+		fmt.Fprint(&b, " [video savings unmeasured]")
+	} else if d.EstimatedSavings > 0 {
 		fmt.Fprintf(&b, " ~%.0f%% smaller", d.EstimatedSavings*100)
 	}
 	for _, r := range d.Reasons {
@@ -125,6 +129,11 @@ func Decide(info *probe.MediaInfo, lib config.Library, pol Policy, opts Options)
 	// Hard stops, in order of precedence.
 	if opts.Tagged {
 		return skip(CodeProvenance, "previously encoded by lessarr; never re-encoded")
+	}
+	if info.Video.HardwareEncoded() {
+		return skip(CodeHardwareProvenance, fmt.Sprintf(
+			"video encoder tag %q identifies a prior Intel hardware HEVC encode; skipping to avoid another lossy generation",
+			info.Video.EncoderTag))
 	}
 	if lib.Mode == "monitor" {
 		return skip(CodeMonitorMode, "library is in monitor mode")
@@ -203,11 +212,22 @@ func Decide(info *probe.MediaInfo, lib config.Library, pol Policy, opts Options)
 		d.Deinterlace = info.Video.Interlaced()
 		d.ScaleTo = targetSize(info, lib.MaxLongEdge)
 
-		saved := estimateVideoSavings(info) + audio.SavedBytes
+		saved := audio.SavedBytes
+		if hasCode(videoCodes, CodeCodecGap) {
+			// This is a modeled codec-generation reduction, not a measured result.
+			saved += estimateVideoSavings(info)
+		} else {
+			// Re-encoding an already-modern codec has no reliable size prediction.
+			// Include only known stream-pruning savings until sample encoding exists.
+			d.VideoSavingsUnmeasured = true
+			d.Reasons = append(d.Reasons, "video savings unmeasured; projection excludes video compression until sample encoding is available")
+		}
 		d.EstimatedSavings = clamp01(float64(saved) / float64(info.Size))
 		d.EstimatedOutputBytes = max64(0, info.Size-saved)
-		d.Reasons = append(d.Reasons,
-			fmt.Sprintf("estimated savings %.0f%%", d.EstimatedSavings*100))
+		if !d.VideoSavingsUnmeasured {
+			d.Reasons = append(d.Reasons,
+				fmt.Sprintf("modeled savings %.0f%% (codec-generation estimate, not measured)", d.EstimatedSavings*100))
+		}
 		return d
 	}
 

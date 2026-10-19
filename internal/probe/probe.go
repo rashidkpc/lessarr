@@ -45,6 +45,7 @@ type Video struct {
 	Index      int     `json:"index"`
 	Codec      string  `json:"codec"`
 	Profile    string  `json:"profile,omitempty"`
+	EncoderTag string  `json:"encoder_tag,omitempty"`
 	Width      int     `json:"width"`
 	Height     int     `json:"height"`
 	FPS        float64 `json:"fps"`
@@ -53,6 +54,17 @@ type Video struct {
 	FieldOrder string  `json:"field_order"`
 	SAR        string  `json:"sar,omitempty"`
 	HDR        HDR     `json:"hdr"`
+}
+
+// HardwareEncoded reports whether ffprobe's video-stream encoder tag identifies
+// a prior Intel QSV/VAAPI HEVC encode. It is a strong signal that another lossy
+// hardware encode would be a subsequent generation, not a codec upgrade.
+func (v Video) HardwareEncoded() bool {
+	if v.Codec != "hevc" {
+		return false
+	}
+	tag := strings.ToLower(v.EncoderTag)
+	return strings.Contains(tag, "hevc_vaapi") || strings.Contains(tag, "hevc_qsv")
 }
 
 type HDR struct {
@@ -278,6 +290,7 @@ func normalize(path string, raw *ffprobeOutput) (*MediaInfo, error) {
 				Index:      s.Index,
 				Codec:      s.CodecName,
 				Profile:    s.Profile,
+				EncoderTag: tagValue(s.Tags, "encoder"),
 				Width:      s.Width,
 				Height:     s.Height,
 				FPS:        firstFPS(s.AvgFrameRate, s.RFrameRate),
@@ -315,6 +328,15 @@ func normalize(path string, raw *ffprobeOutput) (*MediaInfo, error) {
 	}
 	info.estimateVideoBitrate(parseInt(raw.Format.BitRate))
 	return info, nil
+}
+
+func tagValue(tags map[string]string, name string) string {
+	for key, value := range tags {
+		if strings.EqualFold(key, name) {
+			return value
+		}
+	}
+	return ""
 }
 
 // estimateVideoBitrate derives the video bitrate from the container total when

@@ -69,6 +69,47 @@ func TestParseHEVC10Bit(t *testing.T) {
 	}
 }
 
+func TestProbeCapturesVideoEncoderTag(t *testing.T) {
+	data := []byte(`{
+		"format": {"format_name":"matroska,webm", "duration":"600", "size":"100000000", "bit_rate":"1333333"},
+		"streams": [{
+			"index":0, "codec_type":"video", "codec_name":"hevc",
+			"width":1280, "height":720, "avg_frame_rate":"24/1",
+			"pix_fmt":"yuv420p", "field_order":"progressive",
+			"tags":{"ENCODER":"Lavc59.37.100 hevc_vaapi"}
+		}]
+	}`)
+	info, err := parseJSON("movie.mkv", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Video.EncoderTag != "Lavc59.37.100 hevc_vaapi" {
+		t.Fatalf("encoder tag = %q", info.Video.EncoderTag)
+	}
+	if !info.Video.HardwareEncoded() {
+		t.Fatal("VAAPI HEVC encoder tag was not detected")
+	}
+}
+
+func TestHardwareEncodedRequiresMatchingHEVCTag(t *testing.T) {
+	cases := []struct {
+		codec, tag string
+		want       bool
+	}{
+		{"hevc", "Lavc59.37.100 hevc_vaapi", true},
+		{"hevc", "Lavc hevc_qsv", true},
+		{"hevc", "x265", false},
+		{"h264", "Lavc h264_vaapi", false},
+		{"av1", "av1_qsv", false},
+	}
+	for _, c := range cases {
+		v := Video{Codec: c.codec, EncoderTag: c.tag}
+		if got := v.HardwareEncoded(); got != c.want {
+			t.Errorf("HardwareEncoded(%q, %q) = %v, want %v", c.codec, c.tag, got, c.want)
+		}
+	}
+}
+
 func TestParseInterlacedMPEG2AVI(t *testing.T) {
 	info, err := parseJSON("x.avi", loadFixture(t, "mpeg2_480i.json"))
 	if err != nil {

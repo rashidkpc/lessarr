@@ -294,6 +294,58 @@ func TestAudioNeverEmptied(t *testing.T) {
 	}
 }
 
+func TestPriorHardwareHEVCIsSkipped(t *testing.T) {
+	info := &probe.MediaInfo{
+		Size:         8_000 * config.MB,
+		Duration:     7200,
+		VideoBitrate: 12_000_000,
+		Video: probe.Video{
+			Codec: "hevc", Width: 1920, Height: 1080, FPS: 24, BitDepth: 8,
+			EncoderTag: "Lavc59.37.100 hevc_vaapi",
+		},
+	}
+	got := Decide(info, config.DefaultLibrary(), defaultPolicy(), Options{})
+	if got.Action != Skip || !got.Has(CodeHardwareProvenance) {
+		t.Fatalf("got %s %v, want skip for prior hardware encode", got.Action, got.Codes)
+	}
+}
+
+func TestBPPWastefulDoesNotInventVideoSavings(t *testing.T) {
+	info := &probe.MediaInfo{
+		Size:         10_000 * config.MB,
+		Duration:     7200,
+		VideoBitrate: 12_000_000,
+		Video:        probe.Video{Codec: "hevc", Width: 1920, Height: 1080, FPS: 24, BitDepth: 8},
+	}
+	got := Decide(info, config.DefaultLibrary(), defaultPolicy(), Options{})
+	if got.Action != Transcode || !got.Has(CodeBPPWasteful) {
+		t.Fatalf("got %s %v, want bpp_wasteful transcode", got.Action, got.Codes)
+	}
+	if !got.VideoSavingsUnmeasured {
+		t.Fatal("already-modern codec transcode must be marked unmeasured")
+	}
+	if got.EstimatedSavings != 0 || got.EstimatedOutputBytes != info.Size {
+		t.Errorf("must not invent video savings: savings=%v output=%d source=%d",
+			got.EstimatedSavings, got.EstimatedOutputBytes, info.Size)
+	}
+}
+
+func TestCodecGapKeepsModeledEstimate(t *testing.T) {
+	info := &probe.MediaInfo{
+		Size:         6_866 * config.MB,
+		Duration:     7200,
+		VideoBitrate: 8_000_000,
+		Video:        probe.Video{Codec: "h264", Width: 1920, Height: 1080, FPS: 24, BitDepth: 8},
+	}
+	got := Decide(info, config.DefaultLibrary(), defaultPolicy(), Options{})
+	if got.VideoSavingsUnmeasured {
+		t.Fatal("codec-gap savings should retain its explicitly modeled estimate")
+	}
+	if got.EstimatedSavings < 0.49 || got.EstimatedSavings > 0.51 {
+		t.Errorf("codec-gap estimate = %v, want approximately 50%%", got.EstimatedSavings)
+	}
+}
+
 // TestDurationGateReplacesSizeGate documents why the sample filter is a runtime
 // rather than a byte count: a 22-minute SD episode can be smaller than a
 // two-minute trailer.
