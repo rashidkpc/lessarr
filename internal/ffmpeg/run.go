@@ -1,6 +1,7 @@
 package ffmpeg
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -186,8 +187,90 @@ func trialArgs(b Backend, device, out string, seconds int) []string {
 // decodes does a null decode to confirm the produced file is actually readable,
 // not merely present.
 func (r Runner) decodes(ctx context.Context, path string, timeout time.Duration) bool {
-	_, err := r.runTimeout(ctx, timeout, "-hide_banner", "-v", "error", "-i", path, "-f", "null", "-")
+	_, err := r.runTimeout(ctx, timeout, "-hide_banner", "-v", "error", "-i", path,
+		"-map", "0:v?", "-map", "0:a?", "-f", "null", "-")
 	return err == nil
+}
+
+// Decode verifies that a completed media file can be fully decoded.
+func (r Runner) Decode(ctx context.Context, path string, timeout time.Duration) error {
+	_, err := r.runTimeout(ctx, timeout, "-hide_banner", "-v", "error", "-i", path,
+		"-map", "0:v?", "-map", "0:a?", "-f", "null", "-")
+	return err
+}
+
+// Progress is one update parsed from ffmpeg's -progress key/value stream.
+type Progress struct {
+	Frame     int64
+	OutTime   time.Duration
+	Speed     string
+	TotalSize int64
+	State     string
+}
+
+// Encode runs ffmpeg and reports progress records from stdout. It uses argv
+// directly (never a shell), and includes the final stderr lines on failure.
+func (r Runner) Encode(ctx context.Context, args []string, timeout time.Duration, report func(Progress)) error {
+	if timeout <= 0 {
+		timeout = 12 * time.Hour
+	}
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(cctx, r.ffmpegBin(), args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start ffmpeg: %w", err)
+	}
+
+	values := map[string]string{}
+	scanner := bufio.NewScanner(stdout)
+	// Progress records are short; use a larger limit to handle future fields.
+	scanner.Buffer(make([]byte, 4096), 1024*1024)
+	for scanner.Scan() {
+		key, value, ok := strings.Cut(scanner.Text(), "=")
+		if !ok {
+			continue
+		}
+		values[key] = value
+		if key == "progress" {
+			if report != nil {
+				report(progressFrom(values))
+			}
+			clear(values)
+		}
+	}
+	scanErr := scanner.Err()
+	waitErr := cmd.Wait()
+	if cctx.Err() == context.DeadlineExceeded {
+		return fmt.Errorf("ffmpeg timed out after %s", timeout)
+	}
+	if scanErr != nil {
+		return fmt.Errorf("read ffmpeg progress: %w", scanErr)
+	}
+	if waitErr != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = waitErr.Error()
+		}
+		return fmt.Errorf("ffmpeg: %s", lastLines(msg, 8))
+	}
+	return nil
+}
+
+func progressFrom(values map[string]string) Progress {
+	p := Progress{Speed: values["speed"], State: values["progress"]}
+	p.Frame, _ = strconv.ParseInt(values["frame"], 10, 64)
+	p.TotalSize, _ = strconv.ParseInt(values["total_size"], 10, 64)
+	if us, err := strconv.ParseInt(values["out_time_us"], 10, 64); err == nil {
+		p.OutTime = time.Duration(us) * time.Microsecond
+	}
+	return p
 }
 
 func (r Runner) output(ctx context.Context, bin string, args ...string) (string, error) {

@@ -91,6 +91,24 @@ func TestProbeCapturesVideoEncoderTag(t *testing.T) {
 	}
 }
 
+func TestStreamDurationFromMatroskaTag(t *testing.T) {
+	data := []byte(`{
+		"format": {"format_name":"matroska,webm", "duration":"97.062", "size":"100000000"},
+		"streams": [{"index":0,"codec_type":"video","codec_name":"hevc","width":1280,"height":720,
+			"avg_frame_rate":"24/1","pix_fmt":"yuv420p","tags":{"DURATION":"00:01:33.927000000"}}]
+	}`)
+	info, err := parseJSON("sample.mkv", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Video.Duration; got < 93.92 || got > 93.94 {
+		t.Errorf("video duration = %.3f, want 93.927s", got)
+	}
+	if info.Duration < 97.06 {
+		t.Errorf("container duration should retain the longer subtitle duration: %.3f", info.Duration)
+	}
+}
+
 func TestHardwareEncodedRequiresMatchingHEVCTag(t *testing.T) {
 	cases := []struct {
 		codec, tag string

@@ -33,6 +33,7 @@ type MediaInfo struct {
 	Size           int64
 	Duration       float64 // seconds
 	Container      string
+	VideoCount     int
 	Video          Video
 	Audio          []Audio
 	Subs           []Sub
@@ -48,6 +49,7 @@ type Video struct {
 	EncoderTag string  `json:"encoder_tag,omitempty"`
 	Width      int     `json:"width"`
 	Height     int     `json:"height"`
+	Duration   float64 `json:"duration_seconds,omitempty"`
 	FPS        float64 `json:"fps"`
 	PixFmt     string  `json:"pix_fmt"`
 	BitDepth   int     `json:"bit_depth"`
@@ -201,6 +203,7 @@ type ffStream struct {
 	Index             int               `json:"index"`
 	CodecName         string            `json:"codec_name"`
 	CodecType         string            `json:"codec_type"`
+	Duration          string            `json:"duration"`
 	Profile           string            `json:"profile"`
 	Width             int               `json:"width"`
 	Height            int               `json:"height"`
@@ -283,6 +286,7 @@ func normalize(path string, raw *ffprobeOutput) (*MediaInfo, error) {
 	for _, s := range raw.Streams {
 		switch s.CodecType {
 		case "video":
+			info.VideoCount++
 			if info.Video.Codec != "" {
 				continue // first video stream is the feature
 			}
@@ -293,6 +297,7 @@ func normalize(path string, raw *ffprobeOutput) (*MediaInfo, error) {
 				EncoderTag: tagValue(s.Tags, "encoder"),
 				Width:      s.Width,
 				Height:     s.Height,
+				Duration:   streamDuration(s),
 				FPS:        firstFPS(s.AvgFrameRate, s.RFrameRate),
 				PixFmt:     s.PixFmt,
 				BitDepth:   bitDepth(s.PixFmt, s.BitsPerRawSample),
@@ -328,6 +333,26 @@ func normalize(path string, raw *ffprobeOutput) (*MediaInfo, error) {
 	}
 	info.estimateVideoBitrate(parseInt(raw.Format.BitRate))
 	return info, nil
+}
+
+func streamDuration(s ffStream) float64 {
+	if seconds := parseFloat(s.Duration); seconds > 0 {
+		return seconds
+	}
+	if seconds := parseFloat(tagValue(s.Tags, "duration")); seconds > 0 {
+		return seconds
+	}
+	tag := tagValue(s.Tags, "duration")
+	parts := strings.Split(tag, ":")
+	if len(parts) == 3 {
+		h := parseFloat(parts[0])
+		m := parseFloat(parts[1])
+		sec := parseFloat(parts[2])
+		if h >= 0 && m >= 0 && sec >= 0 {
+			return h*3600 + m*60 + sec
+		}
+	}
+	return 0
 }
 
 func tagValue(tags map[string]string, name string) string {

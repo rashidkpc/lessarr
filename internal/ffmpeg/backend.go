@@ -15,11 +15,13 @@ import (
 
 // Backend describes one way of encoding HEVC.
 type Backend struct {
-	Name      string
-	InputArgs []string               // before -i
-	Encoder   string                 // e.g. hevc_vaapi
-	EncArgs   func(icq int) []string // after -vf
-	Filter    func(deinterlace bool, scale *decision.Size) string
+	Name               string
+	InputArgs          []string // before -i when hardware decode is available
+	SoftwareDecodeArgs []string // device setup when decoding on the CPU then uploading
+	UploadFilter       string
+	Encoder            string                                // e.g. hevc_vaapi
+	EncArgs            func(icq int, preset string) []string // after -vf
+	Filter             func(deinterlace bool, scale *decision.Size) string
 }
 
 // VAAPI is the preferred backend on Intel Linux, including Gen9.5 where the QSV
@@ -32,8 +34,10 @@ func VAAPI(device string) Backend {
 			"-hwaccel_device", device,
 			"-hwaccel_output_format", "vaapi",
 		},
-		Encoder: "hevc_vaapi",
-		EncArgs: func(icq int) []string {
+		SoftwareDecodeArgs: []string{"-init_hw_device", "vaapi=va:" + device, "-filter_hw_device", "va"},
+		UploadFilter:       "format=nv12,hwupload",
+		Encoder:            "hevc_vaapi",
+		EncArgs: func(icq int, _ string) []string {
 			return []string{"-c:v", "hevc_vaapi", "-rc_mode", "CQP", "-qp", strconv.Itoa(icq)}
 		},
 		Filter: func(deinterlace bool, scale *decision.Size) string {
@@ -63,9 +67,11 @@ func QSV(device string) Backend {
 			"-qsv_device", device,
 			"-hwaccel_output_format", "qsv",
 		},
-		Encoder: "hevc_qsv",
-		EncArgs: func(icq int) []string {
-			return []string{"-c:v", "hevc_qsv", "-preset", "slow", "-global_quality", strconv.Itoa(icq)}
+		SoftwareDecodeArgs: []string{"-init_hw_device", "qsv=hw:" + device, "-filter_hw_device", "hw"},
+		UploadFilter:       "format=nv12,hwupload=extra_hw_frames=64",
+		Encoder:            "hevc_qsv",
+		EncArgs: func(icq int, preset string) []string {
+			return []string{"-c:v", "hevc_qsv", "-preset", presetOrDefault(preset), "-global_quality", strconv.Itoa(icq)}
 		},
 		Filter: func(deinterlace bool, scale *decision.Size) string {
 			var parts []string
@@ -88,8 +94,8 @@ func Software() Backend {
 	return Backend{
 		Name:    "software",
 		Encoder: "libx265",
-		EncArgs: func(icq int) []string {
-			return []string{"-c:v", "libx265", "-crf", strconv.Itoa(icq), "-preset", "slow", "-pix_fmt", "yuv420p"}
+		EncArgs: func(icq int, preset string) []string {
+			return []string{"-c:v", "libx265", "-crf", strconv.Itoa(icq), "-preset", presetOrDefault(preset), "-pix_fmt", "yuv420p"}
 		},
 		Filter: func(deinterlace bool, scale *decision.Size) string {
 			var parts []string
@@ -103,6 +109,13 @@ func Software() Backend {
 			return strings.Join(parts, ",")
 		},
 	}
+}
+
+func presetOrDefault(preset string) string {
+	if strings.TrimSpace(preset) == "" {
+		return "slow"
+	}
+	return preset
 }
 
 // ByName resolves a configured backend name. "auto" is resolved elsewhere by

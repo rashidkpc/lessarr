@@ -49,7 +49,7 @@ func TestBuildTranscodeVAAPI(t *testing.T) {
 		"-map", "0:0",
 		"-map", "0:1", "-c:a:0", "copy",
 		"-map", "0:2", "-c:a:1", "eac3", "-ac:a:1", "6", "-b:a:1", "640000",
-		"-map", "0:4", "-c:s", "copy",
+		"-map", "0:4", "-c:s:0", "copy",
 		"-vf", "deinterlace_vaapi=rate=frame,scale_vaapi=w=1920:h=1080:format=nv12",
 		"-c:v", "hevc_vaapi", "-rc_mode", "CQP", "-qp", "24",
 		"-map_metadata", "0", "-map_chapters", "0",
@@ -99,6 +99,33 @@ func TestBuildTranscodeSoftware(t *testing.T) {
 	}
 }
 
+func TestConfiguredPresetReachesQSVAndSoftware(t *testing.T) {
+	d := sampleDecision()
+	lib := config.DefaultLibrary()
+	lib.Preset = "medium"
+
+	for _, backend := range []Backend{QSV("/dev/dri/renderD128"), Software()} {
+		got, err := Build(backend, "in.mkv", "out.mkv", sampleInfo(), d, lib)
+		if err != nil {
+			t.Fatal(err)
+		}
+		joined := strings.Join(got, " ")
+		if !strings.Contains(joined, "-preset medium") {
+			t.Errorf("%s ignored configured preset: %s", backend.Name, joined)
+		}
+	}
+
+	// VAAPI has no preset option; its rate-control mode and QP are the quality
+	// controls available in this backend.
+	vaapi, err := Build(VAAPI("/dev/dri/renderD128"), "in.mkv", "out.mkv", sampleInfo(), d, lib)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.Join(vaapi, " "), "-preset") {
+		t.Fatal("VAAPI command should not invent a preset flag")
+	}
+}
+
 // TestNoScaleFilterIsStillFormatConversion guards the resolution bug: with no
 // scaling requested, the VAAPI path must still normalise to nv12 (which is what
 // turns 10-bit p010 sources into something this GPU can encode), and must never
@@ -123,6 +150,26 @@ func TestNoScaleFilterIsStillFormatConversion(t *testing.T) {
 	}
 }
 
+func TestVAAPIUploadsSoftwareDecodedFrames(t *testing.T) {
+	d := sampleDecision()
+	got, err := BuildWithHardwareDecode(VAAPI("/dev/dri/renderD128"), "in.avi", "out.mkv", sampleInfo(), d, config.DefaultLibrary(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(got, " ")
+	for _, want := range []string{
+		"-init_hw_device vaapi=va:/dev/dri/renderD128 -filter_hw_device va",
+		"-vf format=nv12,hwupload,deinterlace_vaapi=rate=frame,scale_vaapi=w=1920:h=1080:format=nv12",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("CPU-decoded VAAPI path missing %q: %s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "-hwaccel vaapi") {
+		t.Errorf("CPU-decode path must not request a VAAPI decoder: %s", joined)
+	}
+}
+
 func TestBuildRemuxCopiesVideo(t *testing.T) {
 	d := decision.Decision{
 		Action:       decision.Remux,
@@ -144,6 +191,35 @@ func TestBuildRemuxCopiesVideo(t *testing.T) {
 	}
 	if !strings.Contains(joined, "-c:a:0 eac3 -ac:a:0 6 -b:a:0 640000") {
 		t.Errorf("audio conversion missing: %s", joined)
+	}
+}
+
+func TestMOVTextSubtitleConvertsForMatroska(t *testing.T) {
+	info := &probe.MediaInfo{
+		Video: probe.Video{Index: 0, Codec: "hevc"},
+		Subs:  []probe.Sub{{Index: 3, Codec: "mov_text", Language: "eng"}},
+	}
+	d := decision.Decision{Action: decision.Remux, Video: 0, SubsKeep: []int{3}}
+	got := BuildRemux("in.mp4", "out.mkv", info, d)
+	joined := strings.Join(got, " ")
+	if !strings.Contains(joined, "-map 0:3 -c:s:0 srt") {
+		t.Errorf("mov_text must be converted to SRT for MKV: %s", joined)
+	}
+}
+
+func TestMP4OutputKeepsMOVTextAndWritesCustomMetadata(t *testing.T) {
+	info := &probe.MediaInfo{
+		Video: probe.Video{Index: 0, Codec: "h264"},
+		Subs:  []probe.Sub{{Index: 2, Codec: "mov_text", Language: "eng"}},
+	}
+	d := decision.Decision{Action: decision.Transcode, Video: 0, SubsKeep: []int{2}}
+	args := BuildTranscodeForContainer(Software(), "in.mp4", "out.mp4", info, d, config.DefaultLibrary(), false, "mp4")
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "-map 0:2 -c:s:0 copy") {
+		t.Errorf("mov_text should be copied into MP4: %s", joined)
+	}
+	if !strings.Contains(joined, "-movflags use_metadata_tags") {
+		t.Errorf("MP4 output needs custom metadata support for the loop marker: %s", joined)
 	}
 }
 

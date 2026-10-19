@@ -294,10 +294,11 @@ func TestAudioNeverEmptied(t *testing.T) {
 	}
 }
 
-func TestPriorHardwareHEVCIsSkipped(t *testing.T) {
+func TestPriorHardwareHEVCIsSkippedWhenNoOtherWork(t *testing.T) {
 	info := &probe.MediaInfo{
 		Size:         8_000 * config.MB,
 		Duration:     7200,
+		Container:    "matroska,webm",
 		VideoBitrate: 12_000_000,
 		Video: probe.Video{
 			Codec: "hevc", Width: 1920, Height: 1080, FPS: 24, BitDepth: 8,
@@ -305,8 +306,31 @@ func TestPriorHardwareHEVCIsSkipped(t *testing.T) {
 		},
 	}
 	got := Decide(info, config.DefaultLibrary(), defaultPolicy(), Options{})
-	if got.Action != Skip || !got.Has(CodeHardwareProvenance) {
+	if got.Action != Skip || !got.Has(CodeHardwareProvenance) || !got.Has(CodeCompliant) {
 		t.Fatalf("got %s %v, want skip for prior hardware encode", got.Action, got.Codes)
+	}
+}
+
+func TestPriorHardwareHEVCCanRemuxLosslessAudio(t *testing.T) {
+	info := &probe.MediaInfo{
+		Size:         8_000 * config.MB,
+		Duration:     7200,
+		VideoBitrate: 8_000_000,
+		Video: probe.Video{
+			Codec: "hevc", Width: 1920, Height: 1080, FPS: 24, BitDepth: 8,
+			EncoderTag: "Lavc59.37.100 hevc_vaapi",
+		},
+		Audio: []probe.Audio{{Index: 1, Codec: "truehd", Channels: 8, Language: "eng", Default: true}},
+	}
+	got := Decide(info, config.DefaultLibrary(), defaultPolicy(), Options{})
+	if got.Action != Remux {
+		t.Fatalf("action = %s, want remux (reasons: %v)", got.Action, got.Reasons)
+	}
+	if !got.Has(CodeHardwareProvenance) || !got.Has(CodeLosslessConvert) {
+		t.Errorf("expected hardware provenance and lossless conversion codes, got %v", got.Codes)
+	}
+	if got.VideoSavingsUnmeasured || got.EstimatedOutputBytes >= info.Size {
+		t.Errorf("audio-only remux projection should include track savings, got %+v", got)
 	}
 }
 

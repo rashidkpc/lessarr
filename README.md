@@ -8,11 +8,12 @@ graph, no opaque queue. Every decision comes with a reason you can read.
 
 ## Status
 
-**M0.** Read-only analysis only. `probe` and `stats` will tell you exactly what
-lessarr would do to every file in your library, and write nothing. The encode,
-watch and serve paths arrive in M1–M3.
+**M1.** `probe` and `stats` are read-only. `once` can encode/remux one file after
+validation and retain the original in `.lessarr-trash`; it is withheld by
+default because each library has `write = false`. Continuous watching, queue
+and dashboard are not implemented yet.
 
-When they do, writing stays opt-in per library. There is no global switch:
+Writing stays opt-in per library:
 
 ```toml
 [[library]]
@@ -67,6 +68,12 @@ lessarr stats --config config.toml --top 20 --reasons
 # nothing and removes the one temporary file it creates.
 lessarr selftest /media
 
+# Process one file. With write=false this reports the decision and does nothing.
+lessarr once --config config.toml /media/movies/Example.mkv
+
+# Explicit one-file test override; the original is retained in .lessarr-trash.
+lessarr once --config config.toml --backend software --force /path/to/test-copy.mkv
+
 # Check a config file before trusting it.
 lessarr config-validate --config config.toml
 ```
@@ -80,6 +87,11 @@ hardware works — it loads the driver, runs a short synthetic encode through ea
 backend, decode-verifies the result, and reports the throughput. It also flags
 source codecs that have no hardware decoder, because those need a different
 filter chain and fail at runtime otherwise.
+
+`once` supports in-place MKV and MP4/M4V/MOV replacements. AVI/TS and other
+formats that would need an extension change are refused rather than left with a
+misleading extension. Replacements are validated, preserve file metadata, and
+retain the original in `.lessarr-trash`.
 
 ## Docker
 
@@ -105,9 +117,9 @@ them:
 
 - **Not HEVC/AV1** → almost always worth re-encoding. H.264→HEVC saves 40–60%,
   MPEG-2/VC-1/Xvid→HEVC saves 65–85%.
-- **Already HEVC/AV1** → skipped by default. Only reconsidered when bits per
-  pixel per frame crosses a per-resolution threshold, and even then M1 will
-  measure by sample-encoding rather than trusting a prediction.
+- **Already HEVC/AV1** → prior `hevc_vaapi`/`hevc_qsv` outputs are skipped. Other
+  high-bitrate files are candidates, but their video savings are marked
+  unmeasured and excluded from projections until sample encoding exists.
 
 Efficiency is normalized as `bpp = video_bitrate / (width × height × fps)`,
 with the video bitrate sampled from real packets when the container does not

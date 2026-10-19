@@ -24,6 +24,7 @@ import (
 	"github.com/rashidkpc/lessarr/internal/ffmpeg"
 	"github.com/rashidkpc/lessarr/internal/probe"
 	"github.com/rashidkpc/lessarr/internal/selftest"
+	"github.com/rashidkpc/lessarr/internal/worker"
 )
 
 var version = "dev"
@@ -47,6 +48,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdConfigValidate(args[1:], stdout, stderr)
 	case "selftest":
 		return cmdSelftest(ctx, args[1:], stdout, stderr)
+	case "once":
+		return cmdOnce(ctx, args[1:], stdout, stderr)
 	case "probe":
 		return cmdProbe(ctx, args[1:], stdout, stderr)
 	case "stats":
@@ -65,6 +68,7 @@ Usage:
   lessarr probe [--config FILE] [--accurate] [--backend NAME] [--json] <file>
   lessarr stats [--config FILE] [--top N] [--workers N] [--reasons] <path>
   lessarr selftest [--config FILE] [--device PATH] [--seconds N] [path]
+  lessarr once [--config FILE] [--backend auto|vaapi|qsv|software] [--force] <file>
   lessarr config-validate [--config FILE]
   lessarr version
 
@@ -72,9 +76,11 @@ probe    explain what lessarr would do with one file, and why. Writes nothing.
 stats    walk a path, decide every file, report the projected outcome.
 selftest check this host: GPU, drivers, encoders, permissions. Writes nothing
          except a temporary file it removes again.
+once     decide, encode/remux, validate, and atomically replace one file.
 config   load and validate a config file.
 
-M0 has no write path: run, scan and once arrive in M1/M2.
+once processes one file; write=false keeps it observe-only unless --force
+is supplied. The continuous watcher/queue is not implemented yet.
 `)
 }
 
@@ -157,7 +163,19 @@ func cmdProbe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	}
 	var argv []string
 	if d.Action != decision.Skip {
-		argv, err = ffmpeg.Build(b, path, path+".lessarr.tmp.mkv", info, d, lib)
+		tempExt, outputFormat, err := worker.TargetContainer(path)
+		if err != nil {
+			fmt.Fprintln(stderr, "lessarr:", err)
+			return 1
+		}
+		selection, err := ffmpeg.Select(ctx, backendFor(*backend, cfg), deviceFor(cfg), info.Video.Codec, ffmpeg.NewRunner())
+		if err != nil {
+			fmt.Fprintln(stderr, "lessarr: select backend:", err)
+			return 1
+		}
+		b = selection.Backend
+		temp := strings.TrimSuffix(path, filepath.Ext(path)) + ".lessarr.tmp" + tempExt
+		argv, err = ffmpeg.BuildWithHardwareDecodeAndContainer(b, path, temp, info, d, lib, selection.HardwareDecode, outputFormat)
 		if err != nil {
 			fmt.Fprintln(stderr, "lessarr:", err)
 			return 1
@@ -176,6 +194,100 @@ func cmdProbe(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	}
 
 	printProbe(stdout, info, lib, d, b.Name, argv)
+	return 0
+}
+
+func cmdOnce(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("once", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cfgPath := fs.String("config", "", "config file")
+	backendName := fs.String("backend", "", "override encoder backend")
+	force := fs.Bool("force", false, "explicitly allow writing when library write=false")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintln(stderr, "lessarr once: exactly one file is required")
+		return 2
+	}
+	path := fs.Arg(0)
+	resolved, err := config.Find(*cfgPath)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	cfg, err := config.Load(resolved)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	lib, ok := cfg.LibraryFor(path)
+	if !ok && len(cfg.Libraries) == 1 {
+		lib, ok = cfg.Libraries[0], true
+	}
+	if !ok {
+		fmt.Fprintf(stderr, "lessarr once: %s is outside configured libraries\n", path)
+		return 1
+	}
+	policy := decision.Policy{Audio: cfg.Audio, Subtitles: cfg.Subtitles}
+	p := probe.New()
+	info, err := p.Probe(ctx, path)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	d := decision.Decide(info, lib, policy, decision.Options{
+		Tagged:       info.Tags[ffmpeg.ProvenanceTag] != "",
+		OriginalLang: probe.OriginalLanguageFromFilename(path),
+	})
+	fmt.Fprintf(stdout, "%s\n", d.String())
+	if d.Action == decision.Skip {
+		return 0
+	}
+	if !lib.Write && !*force {
+		fmt.Fprintln(stdout, "observe only: library write=false; no file was modified")
+		return 0
+	}
+	if *force && !lib.Write {
+		fmt.Fprintln(stderr, "WARNING: --force overrides write=false for this one file")
+	}
+
+	requestedBackend := cfg.Encoder.Backend
+	if *backendName != "" {
+		requestedBackend = *backendName
+	}
+	selection, err := ffmpeg.Select(ctx, requestedBackend, cfg.Encoder.Device, info.Video.Codec, ffmpeg.NewRunner())
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr: select backend:", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "backend: %s (%s)\n", selection.Backend.Name, selection.Reason)
+	result, err := worker.Once(ctx, path, worker.Options{
+		Runner:         ffmpeg.NewRunner(),
+		Prober:         p,
+		Backend:        selection.Backend,
+		HardwareDecode: selection.HardwareDecode,
+		Library:        lib,
+		Policy:         policy,
+		OriginalLang:   probe.OriginalLanguageFromFilename(path),
+		Force:          *force,
+		Progress: func(progress ffmpeg.Progress) {
+			fmt.Fprintf(stderr, "\r  frame=%d time=%s speed=%s", progress.Frame, progress.OutTime.Round(time.Second), progress.Speed)
+		},
+	})
+	fmt.Fprintln(stderr)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	if result.Withheld {
+		fmt.Fprintln(stdout, "observe only: library write=false; no file was modified")
+		return 0
+	}
+	if result.Backup != "" {
+		fmt.Fprintf(stdout, "replaced: %s\noriginal: %s\nelapsed: %s\n",
+			path, result.Backup, result.Elapsed.Round(time.Second))
+	}
 	return 0
 }
 

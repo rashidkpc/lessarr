@@ -130,11 +130,7 @@ func Decide(info *probe.MediaInfo, lib config.Library, pol Policy, opts Options)
 	if opts.Tagged {
 		return skip(CodeProvenance, "previously encoded by lessarr; never re-encoded")
 	}
-	if info.Video.HardwareEncoded() {
-		return skip(CodeHardwareProvenance, fmt.Sprintf(
-			"video encoder tag %q identifies a prior Intel hardware HEVC encode; skipping to avoid another lossy generation",
-			info.Video.EncoderTag))
-	}
+	hardwareEncoded := info.Video.HardwareEncoded()
 	if lib.Mode == "monitor" {
 		return skip(CodeMonitorMode, "library is in monitor mode")
 	}
@@ -160,6 +156,12 @@ func Decide(info *probe.MediaInfo, lib config.Library, pol Policy, opts Options)
 
 	audio := planAudio(info, pol.Audio, opts.OriginalLang)
 	subs := planSubs(info, pol.Subtitles)
+	if hardwareEncoded {
+		// The video remains eligible for stream-copy remuxing, but never another
+		// lossy encode. Audio/container cleanup does not touch the video bitstream.
+		d.Codes = append(d.Codes, CodeHardwareProvenance)
+		d.Reasons = append(d.Reasons, "prior Intel hardware HEVC encode; video will only be copied")
+	}
 
 	// Video verdict.
 	transcode := false
@@ -167,6 +169,9 @@ func Decide(info *probe.MediaInfo, lib config.Library, pol Policy, opts Options)
 	var videoReasons []string
 
 	switch {
+	case hardwareEncoded:
+		// Leave transcode false; remux checks below may still safely change
+		// audio/subtitle tracks while copying the HEVC video unchanged.
 	case !isModern(info.Video.Codec):
 		if bpp := info.BPP(); bpp > 0 && bpp < floorForSource(info) {
 			return skipf(CodeStarvedSource,
@@ -257,7 +262,7 @@ func Decide(info *probe.MediaInfo, lib config.Library, pol Policy, opts Options)
 
 	// Nothing worth doing. Say why the tempting changes were declined.
 	d.Action = Skip
-	d.Codes = []Code{CodeCompliant}
+	d.Codes = append(d.Codes, CodeCompliant)
 	d.Reasons = append(d.Reasons, fmt.Sprintf(
 		"compliant: %s at bpp %.3f, tracks within policy",
 		codecLabel(info.Video.Codec), info.BPP()))
