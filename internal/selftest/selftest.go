@@ -159,7 +159,32 @@ func Run(ctx context.Context, o Options) Report {
 		rep.OK("hwaccels", strings.Join(accels, " "))
 	}
 
+	vaapiHEVCEncode := false
+	vaapiCapabilityKnown := false
+	for _, name := range o.Backends {
+		if name != "vaapi" {
+			continue
+		}
+		if info, err := r.VAInfo(ctx, o.Device); err != nil {
+			rep.Warn("vaapi entrypoints", "vainfo unavailable: "+firstLine(err.Error()))
+		} else {
+			vaapiCapabilityKnown = true
+			vaapiHEVCEncode = ffmpeg.HasVAAPIHEVCEncodeEntryPoint(info)
+			if vaapiHEVCEncode {
+				rep.OK("vaapi hevc", "driver advertises an HEVC encode entrypoint")
+			} else {
+				rep.Warn("vaapi hevc", "driver exposes HEVC decode only; no VAEntrypointEncSlice for HEVCMain")
+			}
+		}
+	}
+
 	// Encoders and trial encodes.
+	hardwareRequested, hardwarePassed := false, false
+	for _, name := range o.Backends {
+		if name != "software" {
+			hardwareRequested = true
+		}
+	}
 	encoders, encErr := r.Encoders(ctx)
 	if encErr != nil {
 		rep.Fail("encoders", "could not list: "+encErr.Error())
@@ -186,16 +211,30 @@ func Run(ctx context.Context, o Options) Report {
 				rep.Skip("trial "+name, b.Encoder+" is not compiled into this ffmpeg")
 				continue
 			}
+			if name == "vaapi" && vaapiCapabilityKnown && !vaapiHEVCEncode {
+				rep.Skip("trial "+name, "HEVC encode entrypoint is absent; skipped trial")
+				continue
+			}
 			trial := r.TrialEncode(ctx, b, o.Device, o.WorkDir, o.TrialSeconds, o.Timeout)
 			switch {
 			case trial.OK && trial.Decodes:
 				rep.OK("trial "+name, fmt.Sprintf("%.0f fps, %s, decodes cleanly",
 					trial.FPS, humanBytes(trial.Bytes)))
+				if name != "software" {
+					hardwarePassed = true
+				}
 			case trial.OK && !trial.Decodes:
 				rep.Warn("trial "+name, "encoded but the output did not decode cleanly")
 			default:
-				rep.Fail("trial "+name, firstLine(trial.Err))
+				if name == "software" {
+					rep.Fail("trial "+name, firstLine(trial.Err))
+				} else {
+					rep.Warn("trial "+name, firstLine(trial.Err))
+				}
 			}
+		}
+		if hardwareRequested && !hardwarePassed {
+			rep.Fail("hardware encoder", "no requested hardware HEVC backend passed trial encode and decode")
 		}
 	}
 

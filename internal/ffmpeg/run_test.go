@@ -56,6 +56,26 @@ func TestHardwareDecodeSupport(t *testing.T) {
 	}
 }
 
+func TestHasVAAPIHEVCEncodeEntryPoint(t *testing.T) {
+	tests := []struct {
+		name string
+		info string
+		want bool
+	}{
+		{"decode only", "VAProfileHEVCMain : VAEntrypointVLD", false},
+		{"hybrid encode", "VAProfileHEVCMain : VAEntrypointEncSlice", true},
+		{"low power encode", "VAProfileHEVCMain : VAEntrypointEncSliceLP", true},
+		{"main10 encode is not main encode", "VAProfileHEVCMain10 : VAEntrypointEncSlice", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := HasVAAPIHEVCEncodeEntryPoint(tt.info); got != tt.want {
+				t.Errorf("HasVAAPIHEVCEncodeEntryPoint() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestByName(t *testing.T) {
 	for _, name := range []string{"vaapi", "qsv", "software", "auto"} {
 		b, err := ByName(name, "/dev/dri/renderD128")

@@ -93,6 +93,43 @@ func (r Runner) HWAccels(ctx context.Context) ([]string, error) {
 	return accels, nil
 }
 
+// VAInfo asks libva which profiles and entrypoints the selected render node
+// actually exposes. An HEVC decoder profile alone does not imply an encoder.
+func (r Runner) VAInfo(ctx context.Context, device string) (string, error) {
+	for _, bin := range []string{"vainfo", "/usr/lib/jellyfin-ffmpeg/vainfo"} {
+		if bin == "vainfo" {
+			if _, err := exec.LookPath(bin); err != nil {
+				continue
+			}
+		} else if _, err := os.Stat(bin); err != nil {
+			continue
+		}
+		return r.output(ctx, bin, "--display", "drm", "--device", device)
+	}
+	return "", fmt.Errorf("vainfo is not installed")
+}
+
+// HasVAAPIHEVCEncodeEntryPoint distinguishes HEVC decode support (VLD) from
+// actual encode support (EncSlice/EncSliceLP).
+func HasVAAPIHEVCEncodeEntryPoint(info string) bool {
+	for _, line := range strings.Split(info, "\n") {
+		fields := strings.Fields(line)
+		hasHEVCMain, hasEncode := false, false
+		for _, field := range fields {
+			switch field {
+			case "VAProfileHEVCMain":
+				hasHEVCMain = true
+			case "VAEntrypointEncSlice", "VAEntrypointEncSliceLP":
+				hasEncode = true
+			}
+		}
+		if hasHEVCMain && hasEncode {
+			return true
+		}
+	}
+	return false
+}
+
 // parseCodecList reads ffmpeg's `-encoders` / `-decoders` table. The flag column
 // is six characters of [VASD.F.], and the legacy header rows use "=" where a
 // codec name would be.
