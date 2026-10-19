@@ -411,6 +411,18 @@ func cmdStats(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		}
 	}
 	sort.Strings(paths)
+
+	// Zero files almost always means the configured paths are not visible
+	// inside the container, which is the most common first-run mistake. Say so
+	// instead of printing an empty report.
+	if len(paths) == 0 {
+		fmt.Fprintln(stderr, "lessarr: no media files found under:")
+		for _, root := range roots {
+			fmt.Fprintf(stderr, "  %s\n", root)
+		}
+		fmt.Fprintln(stderr, "Check that the library paths in config.toml match the volume mounts.")
+		return 1
+	}
 	if walkErrs > 0 {
 		fmt.Fprintf(stderr, "lessarr: warning: %d unreadable directories skipped\n", walkErrs)
 	}
