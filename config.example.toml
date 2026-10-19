@@ -6,7 +6,6 @@
 [server]
 listen    = "0.0.0.0:8585"
 db        = "/config/lessarr.db"
-dry_run   = true          # set false only after `lessarr stats` looks right
 log_level = "info"
 
 [encoder]
@@ -32,6 +31,10 @@ keep_forced    = true
 [[library]]
 name                = "Movies"
 path                = "/media/movies"
+# write gates the only step that modifies a file, and it is off unless the word
+# is typed. A library with write = false is still probed, decided and recorded,
+# so stats and the dashboard show exactly what would have happened.
+write               = false
 mode                = "transcode"
 
 # 0 preserves source resolution. Set 1920 to cap everything at 1080p class.
@@ -43,7 +46,8 @@ preset              = "slow"
 
 min_savings_percent = 25
 min_remux_bytes     = 100     # MB; remuxing is nearly free, so this bar is absolute
-min_size_mb         = 200
+min_duration        = "3m"    # the real sample filter
+min_size_mb         = 50      # too small to be worth GPU time
 skip_if_newer_than  = "10m"   # let Sonarr/Radarr finish importing
 
 hdr                 = "skip"  # never transcode HDR10/DoVi/HLG
@@ -55,8 +59,9 @@ ignore = ["*sample*", "*.partial", "*.!qB", "*.tmp", "*/Extras/*"]
 [[library]]
 name                = "TV"
 path                = "/media/tv"
+write               = false
 mode                = "transcode"
-min_size_mb         = 100     # episodes are smaller than films
-hdr                 = "skip"
 max_long_edge       = 0
+hdr                 = "skip"
+allow_10bit         = false
 ignore              = ["*sample*", "*.partial", "*.!qB", "*.tmp"]

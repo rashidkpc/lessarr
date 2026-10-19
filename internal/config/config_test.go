@@ -27,9 +27,6 @@ path = "/media/movies"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.Server.DryRun {
-		t.Error("dry_run must default to true")
-	}
 	if cfg.Encoder.Workers != 1 {
 		t.Errorf("workers = %d, want 1", cfg.Encoder.Workers)
 	}
@@ -37,8 +34,15 @@ path = "/media/movies"
 	if l.Mode != "transcode" || l.ICQ != 24 || l.Preset != "slow" {
 		t.Errorf("library defaults not applied: %+v", l)
 	}
-	if l.MinLongEdge != 480 || l.MinSizeMB != 200 || l.MinRemuxBytes != 100 {
+	if l.MinLongEdge != 480 || l.MinSizeMB != 50 || l.MinRemuxBytes != 100 {
 		t.Errorf("size defaults not applied: %+v", l)
+	}
+	if l.MinDuration.Std() != 3*time.Minute {
+		t.Errorf("min_duration = %v, want 3m", l.MinDuration.Std())
+	}
+	// The write switch must be off unless the word is typed.
+	if l.Write {
+		t.Error("write must default to false")
 	}
 	if l.SkipIfNewerThan.Std() != 10*time.Minute {
 		t.Errorf("skip_if_newer_than = %v, want 10m", l.SkipIfNewerThan.Std())
@@ -173,5 +177,49 @@ skip_if_newer_than = "90s"
 	}
 	if cfg.Libraries[0].SkipIfNewerThan.Std() != 90*time.Second {
 		t.Errorf("got %v, want 90s", cfg.Libraries[0].SkipIfNewerThan.Std())
+	}
+}
+
+func TestWriteSwitchIsOptIn(t *testing.T) {
+	path := writeTemp(t, `
+[[library]]
+name = "Movies"
+path = "/media/movies"
+write = true
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Libraries[0].Write {
+		t.Error("write = true was not honoured")
+	}
+
+	// And the old global switch is gone: silence is the safe state.
+	if _, err := Load(writeTemp(t, `
+[server]
+dry_run = false
+
+[[library]]
+name = "Movies"
+path = "/media/movies"
+`)); err == nil {
+		t.Error("server.dry_run should be rejected now that the switch is per library")
+	}
+}
+
+func TestMinDurationOverride(t *testing.T) {
+	path := writeTemp(t, `
+[[library]]
+name = "Movies"
+path = "/media/movies"
+min_duration = "10m"
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Libraries[0].MinDuration.Std(); got != 10*time.Minute {
+		t.Errorf("min_duration = %v, want 10m", got)
 	}
 }

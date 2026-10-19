@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rashidkpc/lessarr/internal/config"
 	"github.com/rashidkpc/lessarr/internal/probe"
@@ -33,6 +34,7 @@ const (
 	CodeCompliant           Code = "compliant"
 	CodeProvenance          Code = "provenance"
 	CodeMonitorMode         Code = "monitor_mode"
+	CodeBelowMinDuration    Code = "below_min_duration"
 	CodeBelowMinSize        Code = "below_min_size"
 	CodeBelowMinLongEdge    Code = "below_min_long_edge"
 	CodeHDRPolicy           Code = "hdr_policy"
@@ -126,6 +128,12 @@ func Decide(info *probe.MediaInfo, lib config.Library, pol Policy, opts Options)
 	}
 	if lib.Mode == "monitor" {
 		return skip(CodeMonitorMode, "library is in monitor mode")
+	}
+	// Duration is the real sample filter. Fail open when the container does not
+	// report a runtime: missing metadata must never cause a file to be ignored.
+	if lib.MinDuration > 0 && info.Duration > 0 && info.Duration < lib.MinDuration.Std().Seconds() {
+		return skipf(CodeBelowMinDuration, "runtime %s below min_duration %s",
+			humanDuration(info.Duration), lib.MinDuration.Std())
 	}
 	if info.Size < lib.MinSizeMB*config.MB {
 		return skipf(CodeBelowMinSize, "size %s below min_size_mb %d", humanBytes(info.Size), lib.MinSizeMB)
@@ -550,6 +558,20 @@ func max64(a, b int64) int64 {
 		return a
 	}
 	return b
+}
+
+func humanDuration(seconds float64) string {
+	d := time.Duration(seconds * float64(time.Second))
+	if d <= 0 {
+		return "unknown"
+	}
+	if h := int(d.Hours()); h > 0 {
+		return fmt.Sprintf("%dh%dm", h, int(d.Minutes())%60)
+	}
+	if m := int(d.Minutes()); m > 0 {
+		return fmt.Sprintf("%dm%ds", m, int(d.Seconds())%60)
+	}
+	return fmt.Sprintf("%ds", int(d.Seconds()))
 }
 
 func humanBytes(n int64) string {

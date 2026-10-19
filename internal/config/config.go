@@ -30,7 +30,6 @@ type Config struct {
 type Server struct {
 	Listen   string `toml:"listen"`
 	DB       string `toml:"db"`
-	DryRun   bool   `toml:"dry_run"`
 	LogLevel string `toml:"log_level"`
 }
 
@@ -61,7 +60,12 @@ type Subtitles struct {
 type Library struct {
 	Name string `toml:"name"`
 	Path string `toml:"path"`
-	Mode string `toml:"mode"` // transcode | remux | monitor
+	// Write gates the only step that modifies a file. It is false by default,
+	// and it is per library because getting started is staged: enable one,
+	// watch it, then enable the rest. Stopping everything at once is a runtime
+	// action (`lessarr pause`), not a config flag that can be left behind.
+	Write bool   `toml:"write"`
+	Mode  string `toml:"mode"` // transcode | remux | monitor
 
 	MaxLongEdge int `toml:"max_long_edge"` // 0 preserves source resolution; never upscales
 	MinLongEdge int `toml:"min_long_edge"` // skip anything smaller
@@ -71,7 +75,14 @@ type Library struct {
 
 	MinSavingsPercent float64 `toml:"min_savings_percent"`
 	MinRemuxBytes     int64   `toml:"min_remux_bytes"`
-	MinSizeMB         int64   `toml:"min_size_mb"`
+	// MinDuration is the real sample filter. A byte count is a poor proxy for
+	// "too short to be a title": a two-minute trailer can be 300 MB and a
+	// 22-minute SD episode can be 180 MB.
+	//
+	// MinSizeMB answers a different question — whether reclaiming anything is
+	// worth minutes of GPU time — and is deliberately not a sample filter.
+	MinDuration Duration `toml:"min_duration"`
+	MinSizeMB   int64    `toml:"min_size_mb"`
 
 	SkipIfNewerThan Duration `toml:"skip_if_newer_than"`
 	HDR             string   `toml:"hdr"`
@@ -102,7 +113,6 @@ func Default() Config {
 		Server: Server{
 			Listen:   "0.0.0.0:8585",
 			DB:       "/config/lessarr.db",
-			DryRun:   true,
 			LogLevel: "info",
 		},
 		Encoder: Encoder{
@@ -185,8 +195,11 @@ func (l *Library) applyDefaults() {
 	if l.MinRemuxBytes == 0 {
 		l.MinRemuxBytes = 100
 	}
+	if l.MinDuration == 0 {
+		l.MinDuration = Duration(3 * time.Minute)
+	}
 	if l.MinSizeMB == 0 {
-		l.MinSizeMB = 200
+		l.MinSizeMB = 50
 	}
 	if l.SkipIfNewerThan == 0 {
 		l.SkipIfNewerThan = Duration(10 * time.Minute)
@@ -245,6 +258,9 @@ func (c *Config) Validate() error {
 		}
 		if l.MinLongEdge < 0 {
 			return fmt.Errorf("library %q: min_long_edge must be >= 0", l.Name)
+		}
+		if l.MinDuration < 0 {
+			return fmt.Errorf("library %q: min_duration must be >= 0", l.Name)
 		}
 		if l.MaxLongEdge > 0 && l.MaxLongEdge < l.MinLongEdge {
 			return fmt.Errorf("library %q: max_long_edge must be 0 or >= min_long_edge", l.Name)

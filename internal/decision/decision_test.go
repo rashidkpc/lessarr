@@ -293,3 +293,43 @@ func TestAudioNeverEmptied(t *testing.T) {
 		}
 	}
 }
+
+// TestDurationGateReplacesSizeGate documents why the sample filter is a runtime
+// rather than a byte count: a 22-minute SD episode can be smaller than a
+// two-minute trailer.
+func TestDurationGate(t *testing.T) {
+	base := func(duration float64, sizeMB int64) *probe.MediaInfo {
+		return &probe.MediaInfo{
+			Size:         sizeMB * config.MB,
+			Duration:     duration,
+			VideoBitrate: 6_000_000,
+			Video:        probe.Video{Codec: "h264", Width: 1920, Height: 1080, FPS: 24, BitDepth: 8},
+			Audio:        []probe.Audio{{Index: 1, Codec: "ac3", Channels: 6, Language: "eng", Default: true}},
+		}
+	}
+
+	t.Run("short sample is skipped", func(t *testing.T) {
+		got := Decide(base(40, 45), config.DefaultLibrary(), defaultPolicy(), Options{})
+		if got.Action != Skip || !got.Has(CodeBelowMinDuration) {
+			t.Errorf("got %s %v, want skip with %s", got.Action, got.Codes, CodeBelowMinDuration)
+		}
+	})
+
+	t.Run("small but real episode is processed", func(t *testing.T) {
+		// 180 MB over 22 minutes: too small for a film-sized byte gate, but a
+		// perfectly ordinary episode.
+		got := Decide(base(22*60, 180), config.DefaultLibrary(), defaultPolicy(), Options{})
+		if got.Action != Transcode {
+			t.Errorf("got %s %v, want transcode", got.Action, got.Codes)
+		}
+	})
+
+	t.Run("unknown duration fails open", func(t *testing.T) {
+		// A container that reports no runtime must not cause the file to be
+		// silently ignored.
+		got := Decide(base(0, 900), config.DefaultLibrary(), defaultPolicy(), Options{})
+		if got.Has(CodeBelowMinDuration) {
+			t.Errorf("unknown duration should not trip the gate: %v", got.Codes)
+		}
+	})
+}

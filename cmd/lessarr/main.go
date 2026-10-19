@@ -98,7 +98,11 @@ func cmdConfigValidate(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "%s: ok — %d library/libraries, backend %s, decide_by %s\n",
 		path, len(cfg.Libraries), cfg.Encoder.Backend, cfg.Encoder.DecideBy)
 	for _, l := range cfg.Libraries {
-		fmt.Fprintf(stdout, "  %-12s %s  (%s)\n", l.Name, l.Path, l.Mode)
+		state := "observe only"
+		if l.Write {
+			state = "write enabled"
+		}
+		fmt.Fprintf(stdout, "  %-12s %-22s %-10s %s\n", l.Name, l.Path, l.Mode, state)
 	}
 	return 0
 }
@@ -342,8 +346,9 @@ func printProbe(w io.Writer, info *probe.MediaInfo, lib config.Library, d decisi
 		}
 		fmt.Fprintf(w, "command:    ffmpeg %s\n", strings.Join(argv, " "))
 	}
-	fmt.Fprintf(w, "policy:     icq=%d preset=%s min_savings=%.0f%% min_remux=%dMB min_size=%dMB\n",
-		lib.ICQ, lib.Preset, lib.MinSavingsPercent, lib.MinRemuxBytes, lib.MinSizeMB)
+	fmt.Fprintf(w, "policy:     icq=%d preset=%s min_savings=%.0f%% min_remux=%dMB min_size=%dMB min_duration=%s\n",
+		lib.ICQ, lib.Preset, lib.MinSavingsPercent, lib.MinRemuxBytes, lib.MinSizeMB, lib.MinDuration.Std())
+	fmt.Fprintf(w, "write:      %s\n", writeState(lib.Write))
 }
 
 func cmdStats(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -371,20 +376,41 @@ func cmdStats(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		pol = decision.Policy{Audio: cfg.Audio, Subtitles: cfg.Subtitles}
 	}
 
-	root := fs.Arg(0)
-	if root == "" && cfg != nil && len(cfg.Libraries) == 1 {
-		root = cfg.Libraries[0].Path
+	// No path means "everything configured", which is the normal invocation
+	// once more than one library exists. Walking one library at a time would
+	// make the obvious command require an argument.
+	var roots []string
+	if arg := fs.Arg(0); arg != "" {
+		roots = []string{arg}
+	} else if cfg != nil {
+		for _, l := range cfg.Libraries {
+			roots = append(roots, l.Path)
+		}
 	}
-	if root == "" {
-		fmt.Fprintln(stderr, "lessarr stats: a path is required")
+	if len(roots) == 0 {
+		fmt.Fprintln(stderr, "lessarr stats: no path given and no libraries configured")
 		return 2
 	}
-	if _, err := os.Stat(root); err != nil {
-		fmt.Fprintln(stderr, "lessarr:", err)
-		return 1
-	}
 
-	paths, walkErrs := collectMedia(root, cfg)
+	var paths []string
+	walkErrs := 0
+	seen := map[string]bool{}
+	for _, root := range roots {
+		if _, err := os.Stat(root); err != nil {
+			fmt.Fprintf(stderr, "lessarr: skipping %s: %v\n", root, err)
+			walkErrs++
+			continue
+		}
+		found, errs := collectMedia(root, cfg)
+		walkErrs += errs
+		for _, p := range found {
+			if !seen[p] {
+				seen[p] = true
+				paths = append(paths, p)
+			}
+		}
+	}
+	sort.Strings(paths)
 	if walkErrs > 0 {
 		fmt.Fprintf(stderr, "lessarr: warning: %d unreadable directories skipped\n", walkErrs)
 	}
@@ -455,7 +481,13 @@ func cmdStats(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	wg.Wait()
 	fmt.Fprint(stderr, "\r")
 
-	printStats(stdout, results, *topN, *reasons)
+	writeByLib := map[string]bool{}
+	if cfg != nil {
+		for _, l := range cfg.Libraries {
+			writeByLib[l.Name] = l.Write
+		}
+	}
+	printStats(stdout, results, *topN, *reasons, writeByLib)
 	if failed > 0 {
 		fmt.Fprintf(stderr, "lessarr: %d file(s) could not be probed\n", failed)
 	}
@@ -472,7 +504,17 @@ type statResult struct {
 	path string
 }
 
-func printStats(w io.Writer, results []statResult, topN int, showReasons bool) {
+func printStats(w io.Writer, results []statResult, topN int, showReasons bool, writeByLib map[string]bool) {
+	writable := false
+	for _, on := range writeByLib {
+		if on {
+			writable = true
+		}
+	}
+	if !writable {
+		fmt.Fprint(w, "observe only: no library has write = true, so nothing will be modified\n")
+		fmt.Fprint(w, "this report is a projection, not a record of work done\n\n")
+	}
 	// Group by library.
 	type bucket struct {
 		files                 int
@@ -519,7 +561,11 @@ func printStats(w io.Writer, results []statResult, topN int, showReasons bool) {
 		b := groups[name]
 		totalSize += b.bytes
 		totalOut += b.outB
-		fmt.Fprintf(w, "%s\n", name)
+		fmt.Fprintf(w, "%s", name)
+		if !writeByLib[name] {
+			fmt.Fprint(w, "  (observe only)")
+		}
+		fmt.Fprintln(w)
 		fmt.Fprintf(w, "  files        %d (%s)\n", b.files, humanBytes(b.bytes))
 		fmt.Fprintf(w, "  skip         %d (%s)\n", b.skipN, humanBytes(b.skipB))
 		fmt.Fprintf(w, "  remux        %d (%s)\n", b.remuxN, humanBytes(b.remuxB))
@@ -556,7 +602,7 @@ func printStats(w io.Writer, results []statResult, topN int, showReasons bool) {
 	fmt.Fprintf(w, "total          %s -> %s  (saves %s, %.0f%%)\n",
 		humanBytes(totalSize), humanBytes(totalOut), humanBytes(saved), pct)
 
-	if topN > 0 {
+	if topN > 0 && saved > 0 {
 		sorted := make([]statResult, len(results))
 		copy(sorted, results)
 		sort.Slice(sorted, func(i, j int) bool {
@@ -675,6 +721,14 @@ func hdrLabel(h probe.HDR) string {
 		return "hdr10"
 	}
 	return "sdr"
+}
+
+// writeState renders the per-library write switch, which defaults to off.
+func writeState(on bool) string {
+	if on {
+		return "true (this library will be modified)"
+	}
+	return "false (observe only; nothing will be modified)"
 }
 
 func humanBytes(n int64) string {

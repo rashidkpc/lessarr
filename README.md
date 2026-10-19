@@ -12,6 +12,20 @@ graph, no opaque queue. Every decision comes with a reason you can read.
 lessarr would do to every file in your library, and write nothing. The encode,
 watch and serve paths arrive in M1–M3.
 
+When they do, writing stays opt-in per library. There is no global switch:
+
+```toml
+[[library]]
+name  = "Movies"
+path  = "/media/movies"
+# write = false is the default; set true to let lessarr modify this library
+```
+
+A library with `write = false` is not ignored — it is still probed, decided and
+recorded, so the report shows exactly what would have happened. The switch is
+per library because getting started is staged: enable one, watch it, then enable
+the rest.
+
 ## What it does about
 
 | | |

@@ -148,17 +148,17 @@ lang = "eng"
 default = true
 
 [[case]]
-name = "tiny file skipped"
+name = "sample clip skipped by duration"
 codec = "h264"
 width = 1920
 height = 1080
 fps = 23.976
 bitrate_kbps = 4000
-size_mb = 180
-duration_s = 480
+size_mb = 45
+duration_s = 40
 container = "matroska,webm"
 action = "skip"
-codes = ["below_min_size"]
+codes = ["below_min_duration"]
 [[case.audio]]
 codec = "aac"
 channels = 2
