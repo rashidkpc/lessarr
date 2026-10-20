@@ -10,20 +10,24 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/rashidkpc/lessarr/internal/calibrate"
 	"github.com/rashidkpc/lessarr/internal/config"
+	"github.com/rashidkpc/lessarr/internal/daemon"
 	"github.com/rashidkpc/lessarr/internal/decision"
 	"github.com/rashidkpc/lessarr/internal/ffmpeg"
 	"github.com/rashidkpc/lessarr/internal/probe"
+	"github.com/rashidkpc/lessarr/internal/queue"
+	"github.com/rashidkpc/lessarr/internal/scan"
 	"github.com/rashidkpc/lessarr/internal/selftest"
 	"github.com/rashidkpc/lessarr/internal/worker"
 )
@@ -47,6 +51,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "config-validate":
 		return cmdConfigValidate(args[1:], stdout, stderr)
+	case "run":
+		return cmdRun(ctx, args[1:], stdout, stderr)
+	case "status":
+		return cmdStatus(args[1:], stdout, stderr)
+	case "pause":
+		return cmdPause(args[1:], stdout, stderr, true)
+	case "resume":
+		return cmdPause(args[1:], stdout, stderr, false)
 	case "selftest":
 		return cmdSelftest(ctx, args[1:], stdout, stderr)
 	case "once":
@@ -68,6 +80,9 @@ func usage(w io.Writer) {
 	fmt.Fprint(w, `lessarr — decide what media needs re-encoding
 
 Usage:
+  lessarr run [--config FILE] [--once]
+  lessarr status [--config FILE]
+  lessarr pause|resume [--config FILE]
   lessarr probe [--config FILE] [--accurate] [--backend NAME] [--json] <file>
   lessarr stats [--config FILE] [--top N] [--workers N] [--reasons] <path>
   lessarr selftest [--config FILE] [--device PATH] [--seconds N] [path]
@@ -76,6 +91,9 @@ Usage:
   lessarr config-validate [--config FILE]
   lessarr version
 
+run      scan libraries, queue work, encode, and serve the status page.
+status   print queue and library counters from the database.
+pause    stop claiming new jobs; resume restarts them.
 probe    explain what lessarr would do with one file, and why. Writes nothing.
 stats    walk a path, decide every file, report the projected outcome.
 selftest check this host: GPU, drivers, encoders, permissions. Writes nothing
@@ -84,8 +102,9 @@ once     decide, encode/remux, validate, and atomically replace one file.
 calibrate offline VAAPI CQP sweep; reads the source and writes only temporary local samples.
 config   load and validate a config file.
 
-once processes one file; write=false keeps it observe-only unless --force
-is supplied. The continuous watcher/queue is not implemented yet.
+Scanning is polling-based because inotify does not observe changes made over
+CIFS. write=false still records every decision and shows it on the dashboard,
+but withholds replacement.
 `)
 }
 
@@ -116,6 +135,180 @@ func cmdConfigValidate(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "  %-12s %-22s %-10s %s\n", l.Name, l.Path, l.Mode, state)
 	}
 	return 0
+}
+
+func cmdRun(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cfgPath := fs.String("config", "", "config file")
+	once := fs.Bool("once", false, "scan once and exit")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	path, err := config.Find(*cfgPath)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	store, err := queue.Open(cfg.Server.DB)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	defer store.Close()
+
+	runCtx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	fmt.Fprintf(stdout, "lessarr %s: %d libraries, database %s\n", version, len(cfg.Libraries), cfg.Server.DB)
+	if err := daemon.Run(runCtx, daemon.Options{
+		Config: cfg, Store: store, Version: version, Log: stderr, Once: *once,
+	}); err != nil {
+		fmt.Fprintln(stderr, "lessarr run:", err)
+		return 1
+	}
+	return 0
+}
+
+func cmdStatus(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("status", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cfgPath := fs.String("config", "", "config file")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	path, err := config.Find(*cfgPath)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	store, err := queue.Open(cfg.Server.DB)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	defer store.Close()
+	paused, err := store.Paused()
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	counts, err := store.Counts()
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	files, err := store.FilesSummary()
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "database: %s\n", cfg.Server.DB)
+	fmt.Fprintf(stdout, "paused: %s\n", yesNo(paused))
+	fmt.Fprintf(stdout, "queue: pending=%d running=%d done=%d failed=%d skipped=%d withheld=%d\n",
+		counts.Pending, counts.Running, counts.Done, counts.Failed, counts.Skipped, counts.Withheld)
+	fmt.Fprintf(stdout, "reclaimed: %s\n", humanBytes(counts.Saved))
+	if current, err := store.Current(); err == nil && current != nil {
+		fmt.Fprintf(stdout, "current: %s (%s, started %s)\n", current.Path, current.Action, humanAgo(current.StartedAt))
+	}
+	fmt.Fprintln(stdout, "libraries:")
+	for _, lib := range cfg.Libraries {
+		state := "observe"
+		if lib.Write {
+			state = "write"
+		}
+		sum := files[lib.Name]
+		fmt.Fprintf(stdout, "  %-14s %-8s %6d files  %10s  %s\n", lib.Name, state, sum.Files, humanBytes(sum.Bytes), actionCounts(sum.Actions))
+	}
+	recent, err := store.Recent(8)
+	if err == nil && len(recent) > 0 {
+		fmt.Fprintln(stdout, "recent:")
+		for _, job := range recent {
+			fmt.Fprintf(stdout, "  %-8s %-10s %s\n", job.StateName(), humanBytes(job.SizeBefore), filepath.Base(job.Path))
+		}
+	}
+	return 0
+}
+
+func cmdPause(args []string, stdout, stderr io.Writer, paused bool) int {
+	fs := flag.NewFlagSet("pause", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cfgPath := fs.String("config", "", "config file")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	path, err := config.Find(*cfgPath)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	store, err := queue.Open(cfg.Server.DB)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	defer store.Close()
+	if err := store.SetPaused(paused); err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	if paused {
+		fmt.Fprintln(stdout, "paused: no new jobs will be claimed")
+	} else {
+		fmt.Fprintln(stdout, "resumed: the worker will claim queued jobs")
+	}
+	return 0
+}
+
+func yesNo(v bool) string {
+	if v {
+		return "yes"
+	}
+	return "no"
+}
+
+func humanAgo(t time.Time) string {
+	if t.IsZero() {
+		return "unknown"
+	}
+	d := time.Since(t)
+	if d < time.Minute {
+		return "just now"
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	}
+	return fmt.Sprintf("%dh ago", int(d.Hours()))
+}
+
+func actionCounts(actions map[string]int) string {
+	if len(actions) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(actions))
+	for k := range actions {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var parts []string
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%d", k, actions[k]))
+	}
+	return strings.Join(parts, " ")
 }
 
 func cmdProbe(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -633,7 +826,7 @@ func cmdStats(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 			walkErrs++
 			continue
 		}
-		found, errs := collectMedia(root, cfg)
+		found, errs := scan.Files(root, cfg)
 		walkErrs += errs
 		for _, p := range found {
 			if !seen[p] {
@@ -888,64 +1081,6 @@ func printStats(w io.Writer, results []statResult, topN int, showReasons bool, w
 				humanBytes(r.size), humanBytes(r.out), filepath.Base(r.path))
 		}
 	}
-}
-
-var mediaExts = map[string]bool{
-	".mkv": true, ".mp4": true, ".m4v": true, ".avi": true, ".ts": true,
-	".m2ts": true, ".mov": true, ".wmv": true, ".webm": true, ".mpg": true,
-	".mpeg": true, ".divx": true, ".flv": true, ".vob": true,
-}
-
-var skipDirs = map[string]bool{
-	"@eaDir": true, "@tmp": true, "#recycle": true, "#snapshot": true,
-	".@__thumb": true, "@appstore": true, ".Trash": true, ".Trashes": true,
-	"lost+found": true,
-}
-
-func collectMedia(root string, cfg *config.Config) ([]string, int) {
-	var paths []string
-	errs := 0
-	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			errs++
-			if d != nil && d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if d.IsDir() {
-			name := d.Name()
-			if path != root && (skipDirs[name] || strings.HasPrefix(name, ".")) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !mediaExts[strings.ToLower(filepath.Ext(path))] {
-			return nil
-		}
-		if cfg != nil {
-			if l, ok := cfg.LibraryFor(path); ok && ignored(path, l.Ignore) {
-				return nil
-			}
-		}
-		paths = append(paths, path)
-		return nil
-	})
-	sort.Strings(paths)
-	return paths, errs
-}
-
-func ignored(path string, patterns []string) bool {
-	base := filepath.Base(path)
-	for _, p := range patterns {
-		if ok, _ := filepath.Match(p, base); ok {
-			return true
-		}
-		if ok, _ := filepath.Match(p, path); ok {
-			return true
-		}
-	}
-	return false
 }
 
 func codec(c string) string {

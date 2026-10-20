@@ -4,9 +4,10 @@
 # falling back to a default.
 
 [server]
-listen    = "0.0.0.0:8585"
-db        = "/config/lessarr.db"
-log_level = "info"
+listen        = "0.0.0.0:8585"
+db            = "/config/lessarr.db"
+log_level     = "info"
+scan_interval = "5m"   # polling; inotify cannot see changes on CIFS
 
 [encoder]
 backend   = "auto"        # auto | vaapi | qsv | software

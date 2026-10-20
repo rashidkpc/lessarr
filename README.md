@@ -8,11 +8,12 @@ graph, no opaque queue. Every decision comes with a reason you can read.
 
 ## Status
 
-**M1.** `probe` and `stats` are read-only. `once` can encode/remux one file after
-validation and retain the original in `.lessarr-trash`; it is withheld by
-default because each library has `write = false`. `calibrate` measures an offline
-VAAPI quality/size curve without modifying its source. Continuous watching,
-queue and dashboard are not implemented yet.
+**M2.** `run` is the long-running daemon: it polls the libraries, records every
+decision, persists a SQLite queue, processes one job at a time and serves a
+status page. `probe` and `stats` remain read-only. `once` can encode/remux one
+file after validation and retain the original in `.lessarr-trash`; it is
+withheld by default because each library has `write = false`. `calibrate`
+measures an offline VAAPI quality/size curve without modifying its source.
 
 Writing stays opt-in per library:
 
@@ -56,6 +57,17 @@ Requires Go 1.24. `ffprobe` must be on `PATH` at runtime.
 ## Use
 
 ```sh
+# Long-running daemon: scan, queue, encode, and serve http://localhost:8585.
+lessarr run --config config.toml
+
+# Scan once, record decisions, and exit. Useful before turning writes on.
+lessarr run --config config.toml --once
+
+# Inspect or control the queue without the dashboard.
+lessarr status --config config.toml
+lessarr pause  --config config.toml
+lessarr resume --config config.toml
+
 # What would happen to one file, and the exact command that would run.
 lessarr probe /media/movies/Example.mkv
 
@@ -87,6 +99,12 @@ lessarr config-validate --config config.toml
 `stats` prints, per library, how many files land in each action and what the
 projected size change is. That is the number to argue with before letting
 lessarr write anything. Start with `config.example.toml`.
+
+`run` is the Tdarr replacement: a polling scan (because CIFS does not deliver
+inotify events), a durable SQLite queue, one worker, retries, pause/resume and a
+status page at `/`. A library with `write = false` is still scanned and its
+decisions are visible in the dashboard, but nothing is queued for replacement.
+The queue survives restarts; jobs that were running are returned to `pending`.
 
 `selftest` is the first thing to run on a new machine. It does not assume the
 hardware works — it loads the driver, runs a short synthetic encode through each

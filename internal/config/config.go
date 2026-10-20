@@ -28,9 +28,10 @@ type Config struct {
 }
 
 type Server struct {
-	Listen   string `toml:"listen"`
-	DB       string `toml:"db"`
-	LogLevel string `toml:"log_level"`
+	Listen       string   `toml:"listen"`
+	DB           string   `toml:"db"`
+	LogLevel     string   `toml:"log_level"`
+	ScanInterval Duration `toml:"scan_interval"`
 }
 
 type Encoder struct {
@@ -111,9 +112,10 @@ func (d Duration) Std() time.Duration { return time.Duration(d) }
 func Default() Config {
 	return Config{
 		Server: Server{
-			Listen:   "0.0.0.0:8585",
-			DB:       "/config/lessarr.db",
-			LogLevel: "info",
+			Listen:       "0.0.0.0:8585",
+			DB:           "/config/lessarr.db",
+			LogLevel:     "info",
+			ScanInterval: Duration(5 * time.Minute),
 		},
 		Encoder: Encoder{
 			Backend:  "auto",
@@ -228,6 +230,9 @@ func (c *Config) Validate() error {
 	if c.Encoder.Workers < 1 {
 		return fmt.Errorf("encoder.workers: must be >= 1")
 	}
+	if c.Server.ScanInterval.Std() < 10*time.Second {
+		return fmt.Errorf("server.scan_interval: must be at least 10s")
+	}
 	if err := validateSchedule(c.Encoder.Schedule); err != nil {
 		return err
 	}
@@ -298,6 +303,16 @@ func validateSchedule(s string) error {
 
 // LibraryFor returns the library whose path contains the given file, preferring
 // the longest match so nested libraries work.
+// LibraryByName resolves a queued job's library after a restart.
+func (c *Config) LibraryByName(name string) (Library, bool) {
+	for _, l := range c.Libraries {
+		if l.Name == name {
+			return l, true
+		}
+	}
+	return Library{}, false
+}
+
 func (c *Config) LibraryFor(path string) (Library, bool) {
 	var best Library
 	found := false
