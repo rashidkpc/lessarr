@@ -15,12 +15,19 @@ import (
 )
 
 type Server struct {
-	cfg       *config.Config
-	store     *queue.Store
-	backend   string
-	version   string
-	progress  func() *Progress
-	templates *template.Template
+	cfg         *config.Config
+	store       *queue.Store
+	backend     string
+	version     string
+	progress    func() *Progress
+	scan        func() *ScanStatus
+	triggerScan func()
+	templates   *template.Template
+}
+
+type ScanStatus struct {
+	Scanning bool
+	Since    time.Time
 }
 
 // Progress is a snapshot of the currently running job's encoder progress.
@@ -37,9 +44,10 @@ type Progress struct {
 	Updated   time.Time
 }
 
-func New(cfg *config.Config, store *queue.Store, backend, version string, progress func() *Progress) *Server {
+func New(cfg *config.Config, store *queue.Store, backend, version string,
+	progress func() *Progress, scan func() *ScanStatus, triggerScan func()) *Server {
 	return &Server{
-		cfg: cfg, store: store, backend: backend, version: version, progress: progress,
+		cfg: cfg, store: store, backend: backend, version: version, progress: progress, scan: scan, triggerScan: triggerScan,
 		templates: template.Must(template.New("root").Funcs(template.FuncMap{
 			"bytes": humanBytes,
 			"when":  humanWhen,
@@ -60,6 +68,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.setPaused(w, r, true)
 	case r.URL.Path == "/api/resume" && r.Method == http.MethodPost:
 		s.setPaused(w, r, false)
+	case r.URL.Path == "/api/scan" && r.Method == http.MethodPost:
+		if s.triggerScan != nil {
+			s.triggerScan()
+		}
+		http.Redirect(w, r, "/", http.StatusSeeOther)
 	case r.URL.Path == "/" && r.Method == http.MethodGet:
 		s.statusPage(w)
 	case r.URL.Path == "/files" && r.Method == http.MethodGet:
@@ -123,6 +136,8 @@ type Status struct {
 	Libraries     []LibraryStatus
 	Current       *queue.Job
 	Progress      *Progress
+	Scan          *ScanStatus
+	LastScan      *queue.ScanInfo
 	Recent        []queue.Job
 }
 
@@ -151,11 +166,19 @@ func (s *Server) collect() (Status, error) {
 	if s.progress != nil {
 		progress = s.progress()
 	}
+	lastScan, err := s.store.LastScan()
+	if err != nil {
+		return Status{}, err
+	}
+	var scan *ScanStatus
+	if s.scan != nil {
+		scan = s.scan()
+	}
 	status := Status{
 		Version: s.version, Backend: s.backend, Device: s.cfg.Encoder.Device,
 		Schedule: s.cfg.Encoder.Schedule, Paused: paused,
 		ScanEvery: s.cfg.Server.ScanInterval.Std().String(),
-		Counts:    counts, Current: current, Progress: progress, Recent: recent,
+		Counts:    counts, Current: current, Progress: progress, Scan: scan, LastScan: lastScan, Recent: recent,
 	}
 	for _, l := range s.cfg.Libraries {
 		ls := LibraryStatus{Name: l.Name, Path: l.Path, Write: l.Write, Paused: paused}

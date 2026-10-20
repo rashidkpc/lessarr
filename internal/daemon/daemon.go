@@ -43,17 +43,21 @@ type Options struct {
 }
 
 type Daemon struct {
-	cfg        *config.Config
-	store      *queue.Store
-	runner     ffmpeg.Runner
-	prober     probe.Prober
-	backend    ffmpeg.Backend
-	hwDecode   map[string]bool
-	writable   []string
-	log        io.Writer
-	policy     decision.Policy
-	progressMu sync.Mutex
-	progress   web.Progress
+	cfg         *config.Config
+	store       *queue.Store
+	runner      ffmpeg.Runner
+	prober      probe.Prober
+	backend     ffmpeg.Backend
+	hwDecode    map[string]bool
+	writable    []string
+	log         io.Writer
+	policy      decision.Policy
+	progressMu  sync.Mutex
+	progress    web.Progress
+	scanNow     chan struct{}
+	scanMu      sync.Mutex
+	scanning    bool
+	scanStarted time.Time
 }
 
 // Run blocks until ctx is cancelled. With Once set it performs a single scan
@@ -85,6 +89,7 @@ func Run(ctx context.Context, o Options) error {
 			d.writable = append(d.writable, lib.Name)
 		}
 	}
+	d.scanNow = make(chan struct{}, 1)
 	if o.Once {
 		return d.sweep(ctx, true)
 	}
@@ -104,7 +109,8 @@ func Run(ctx context.Context, o Options) error {
 	}
 	fmt.Fprintf(d.log, "backend: %s (%s)\n", selection.Backend.Name, selection.Reason)
 
-	handler := web.New(d.cfg, d.store, selection.Backend.Name, o.Version, d.currentProgress)
+	handler := web.New(d.cfg, d.store, selection.Backend.Name, o.Version,
+		d.currentProgress, d.currentScan, d.triggerScan)
 	server := &http.Server{
 		Addr:              d.cfg.Server.Listen,
 		Handler:           handler,
@@ -141,9 +147,7 @@ func Run(ctx context.Context, o Options) error {
 }
 
 func (d *Daemon) scanLoop(ctx context.Context) {
-	if err := d.sweep(ctx, true); err != nil && !errors.Is(err, context.Canceled) {
-		fmt.Fprintf(d.log, "scan: %v\n", err)
-	}
+	d.runScan(ctx, true)
 	ticker := time.NewTicker(d.cfg.Server.ScanInterval.Std())
 	defer ticker.Stop()
 	for {
@@ -151,10 +155,43 @@ func (d *Daemon) scanLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := d.sweep(ctx, false); err != nil && !errors.Is(err, context.Canceled) {
-				fmt.Fprintf(d.log, "scan: %v\n", err)
-			}
+			d.runScan(ctx, false)
+		case <-d.scanNow:
+			d.runScan(ctx, false)
 		}
+	}
+}
+
+func (d *Daemon) runScan(ctx context.Context, force bool) {
+	d.setScanning(true)
+	defer d.setScanning(false)
+	if err := d.sweep(ctx, force); err != nil && !errors.Is(err, context.Canceled) {
+		fmt.Fprintf(d.log, "scan: %v\n", err)
+	}
+}
+
+func (d *Daemon) setScanning(on bool) {
+	d.scanMu.Lock()
+	defer d.scanMu.Unlock()
+	d.scanning = on
+	if on {
+		d.scanStarted = time.Now()
+	}
+}
+
+func (d *Daemon) currentScan() *web.ScanStatus {
+	d.scanMu.Lock()
+	defer d.scanMu.Unlock()
+	if !d.scanning {
+		return nil
+	}
+	return &web.ScanStatus{Scanning: true, Since: d.scanStarted}
+}
+
+func (d *Daemon) triggerScan() {
+	select {
+	case d.scanNow <- struct{}{}:
+	default:
 	}
 }
 
@@ -231,8 +268,14 @@ func (d *Daemon) sweep(ctx context.Context, force bool) error {
 			}
 		}
 	}
+	elapsed := time.Since(started)
+	if err := d.store.RecordScan(queue.ScanInfo{
+		At: time.Now(), Files: total, Probed: probed, Queued: queued, Elapsed: elapsed,
+	}); err != nil {
+		fmt.Fprintf(d.log, "scan: record last scan: %v\n", err)
+	}
 	fmt.Fprintf(d.log, "scan complete: %d files, %d probed, %d queued in %s\n",
-		total, probed, queued, time.Since(started).Round(time.Second))
+		total, probed, queued, elapsed.Round(time.Second))
 	return nil
 }
 

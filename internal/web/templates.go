@@ -4,6 +4,7 @@ const sharedHTML = `{{define "head"}}<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="refresh" content="5">
 <title>lessarr</title>
 <style>
 :root { color-scheme: dark; }
@@ -44,13 +45,24 @@ const pageHTML = `{{define "page"}}{{template "head"}}
 {{template "nav"}}
 <div class="muted">
 {{if .Paused}}<span class="badge warn">paused</span>{{else}}<span class="badge ok">running</span>{{end}}
+{{if .Scan}}<span class="badge warn">scanning since {{when .Scan.Since}}</span>{{end}}
 {{if .Schedule}}schedule <code>{{.Schedule}}</code>{{end}}
 &nbsp; backend <code>{{.Backend}}</code> on <code>{{.Device}}</code>
 &nbsp; scan every {{.ScanEvery}}
 </div>
-<form method="post" action="{{if .Paused}}/api/resume{{else}}/api/pause{{end}}" style="margin-top:.8rem">
+<div style="display:flex;gap:.5rem;margin-top:.8rem">
+<form method="post" action="{{if .Paused}}/api/resume{{else}}/api/pause{{end}}">
 <button type="submit">{{if .Paused}}Resume{{else}}Pause{{end}}</button>
 </form>
+<form method="post" action="/api/scan">
+<button type="submit">Scan now</button>
+</form>
+</div>
+{{if .LastScan}}
+<div class="muted" style="margin-top:.5rem">
+last scan {{when .LastScan.At}} · {{.LastScan.Files}} files · {{.LastScan.Queued}} queued · took {{dur .LastScan.Elapsed}}
+</div>
+{{end}}
 
 {{if and (gt .Counts.Pending 0) (not .WritesEnabled)}}
 <div class="card notice">

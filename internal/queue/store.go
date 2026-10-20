@@ -4,6 +4,7 @@ package queue
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -71,6 +72,14 @@ type FileRow struct {
 	File
 	JobID    int64
 	JobState string
+}
+
+type ScanInfo struct {
+	At      time.Time
+	Files   int
+	Probed  int
+	Queued  int
+	Elapsed time.Duration
 }
 
 type Counts struct {
@@ -475,6 +484,32 @@ func scanJob(row scanner) (Job, error) {
 		j.FinishedAt = time.Unix(finished, 0)
 	}
 	return j, nil
+}
+
+func (s *Store) RecordScan(info ScanInfo) error {
+	data, err := json.Marshal(info)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`INSERT INTO settings (key, value) VALUES ('last_scan', ?)
+		ON CONFLICT(key) DO UPDATE SET value=excluded.value`, string(data))
+	return err
+}
+
+func (s *Store) LastScan() (*ScanInfo, error) {
+	var value string
+	err := s.db.QueryRow(`SELECT value FROM settings WHERE key='last_scan'`).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var info ScanInfo
+	if err := json.Unmarshal([]byte(value), &info); err != nil {
+		return nil, err
+	}
+	return &info, nil
 }
 
 func (s *Store) Paused() (bool, error) {
