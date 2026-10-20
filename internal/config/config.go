@@ -16,7 +16,10 @@ import (
 
 // MB is one mebibyte. Size settings in the config are expressed in MB so the
 // numbers read the way people describe media files.
-const MB = int64(1 << 20)
+const (
+	MB = int64(1 << 20)
+	GB = MB * 1024
+)
 
 // Config is the root of the configuration file.
 type Config struct {
@@ -24,7 +27,13 @@ type Config struct {
 	Encoder   Encoder   `toml:"encoder"`
 	Audio     Audio     `toml:"audio"`
 	Subtitles Subtitles `toml:"subtitles"`
+	Trash     Trash     `toml:"trash"`
 	Libraries []Library `toml:"library"`
+}
+
+type Trash struct {
+	Retention Duration `toml:"retention"`
+	MaxSizeGB int64    `toml:"max_size_gb"`
 }
 
 type Server struct {
@@ -140,6 +149,10 @@ func Default() Config {
 			KeepLanguages: []string{"eng", "fre"},
 			KeepForced:    true,
 		},
+		Trash: Trash{
+			Retention: Duration(48 * time.Hour),
+			MaxSizeGB: 20,
+		},
 	}
 }
 
@@ -233,6 +246,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Encoder.Workers < 1 {
 		return fmt.Errorf("encoder.workers: must be >= 1")
+	}
+	if c.Trash.Retention < 0 {
+		return fmt.Errorf("trash.retention: must be >= 0")
+	}
+	if c.Trash.MaxSizeGB < 0 {
+		return fmt.Errorf("trash.max_size_gb: must be >= 0")
 	}
 
 	if len(c.Libraries) == 0 {

@@ -27,6 +27,11 @@ eac3_bitrate_20        = "256k"
 keep_languages = ["eng", "fre"]
 keep_forced    = true
 
+[trash]
+# Keep only the newest original per file, and bound the rest.
+retention   = "48h"
+max_size_gb = 20
+
 [[library]]
 name                = "Movies"
 path                = "/media/movies"

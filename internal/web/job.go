@@ -17,6 +17,7 @@ type JobPage struct {
 	*queue.Job
 	Analysis      *analysis.Result
 	HasComparison bool
+	CanRetry      bool
 }
 
 func (s *Server) jobPage(w http.ResponseWriter, r *http.Request) {
@@ -37,6 +38,13 @@ func (s *Server) jobPage(w http.ResponseWriter, r *http.Request) {
 	page := JobPage{Job: job}
 	if _, err := os.Stat(filepath.Join(compare.Dir(s.cfg.Server.DB), strconv.FormatInt(job.ID, 10), "index.html")); err == nil {
 		page.HasComparison = true
+	}
+	if job.Backup != "" {
+		if fi, err := os.Lstat(job.Backup); err == nil && fi.Mode().IsRegular() {
+			if lib, ok := s.cfg.LibraryFor(job.Path); ok && lib.Write {
+				page.CanRetry = true
+			}
+		}
 	}
 	if data, err := s.store.Analysis(id); err == nil && data != "" {
 		var result analysis.Result

@@ -27,7 +27,7 @@ func testServer(t *testing.T) *Server {
 	cfg := config.Default()
 	cfg.Server.DB = dbPath
 	cfg.Libraries = []config.Library{{Name: "Movies", Path: "/media/movies"}}
-	return New(&cfg, store, "test", nil)
+	return New(&cfg, store, "test", nil, nil)
 }
 
 func TestStatusPageRenders(t *testing.T) {
@@ -168,7 +168,7 @@ func TestSamplingProgressIsCollapsedWithSubBar(t *testing.T) {
 				{Label: "sampling 2/5", Done: true},
 				{Label: "sampling 3/5"},
 			}}
-	})
+	}, nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
 	body := w.Body.String()
@@ -196,6 +196,53 @@ func TestPauseAndResumeEndpoint(t *testing.T) {
 	}
 	if paused, err := s.store.Paused(); err != nil || paused {
 		t.Fatalf("Paused after resume = %v, %v", paused, err)
+	}
+}
+
+func TestRetryEndpoint(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	store, err := queue.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	cfg := config.Default()
+	cfg.Server.DB = dbPath
+	cfg.Libraries = []config.Library{{Name: "Movies", Path: "/media/movies", Write: true}}
+	var called int64
+	s := New(&cfg, store, "test", nil, func(id int64) error { called = id; return nil })
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/jobs/42/retry", nil))
+	if w.Code != http.StatusSeeOther || called != 42 {
+		t.Fatalf("retry status=%d called=%d", w.Code, called)
+	}
+}
+
+func TestJobPageShowsRetryWhenOriginalExists(t *testing.T) {
+	s := testServer(t)
+	s.cfg.Libraries[0].Write = true
+	path := "/media/movies/Example.mkv"
+	if _, err := s.store.Enqueue(queue.Job{Path: path, Library: "Movies", Action: "transcode", SizeBefore: 100}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.store.Claim(time.Now())
+	if err != nil || job == nil {
+		t.Fatal(err)
+	}
+	backup := filepath.Join(t.TempDir(), ".lessarr-trash", "original.mkv")
+	if err := os.MkdirAll(filepath.Dir(backup), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backup, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.store.Complete(job.ID, queue.Done, 50, backup); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/jobs/"+strconv.FormatInt(job.ID, 10), nil))
+	if body := w.Body.String(); !strings.Contains(body, "Retry with current settings") {
+		t.Error("job page should offer retry when the original exists")
 	}
 }
 
@@ -260,7 +307,7 @@ func TestProgressAppearsInStatusAndPage(t *testing.T) {
 			OutTime: 30 * time.Second, Duration: 2 * time.Minute, Speed: "2.4x",
 			TotalSize: 100 << 20, Started: now, Updated: now,
 			Steps: []Step{{Label: "preparing", Done: true}, {Label: "encoding"}}}
-	})
+	}, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)

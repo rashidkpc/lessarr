@@ -453,6 +453,37 @@ func (s *Store) FilesSummary() (map[string]Summary, error) {
 // dashboard shows the order they will run; finished jobs are newest first.
 // DoneTranscodes returns successful transcodes that still have a retained
 // original. Startup backfill uses it to generate comparison images.
+// Backups returns successful jobs that still claim a retained original.
+func (s *Store) Backups() ([]Job, error) {
+	rows, err := s.db.Query(`SELECT id, path, library, state, action, codec, reason, size_before, size_after,
+		attempts, error, backup, created_at, updated_at, started_at, finished_at
+		FROM jobs WHERE state='done' AND backup <> '' ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var jobs []Job
+	for rows.Next() {
+		j, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, j)
+	}
+	return jobs, rows.Err()
+}
+
+func (s *Store) ClearBackup(jobID int64) error {
+	_, err := s.db.Exec(`UPDATE jobs SET backup='' WHERE id=?`, jobID)
+	return err
+}
+
+func (s *Store) HasActiveJob(path string) (bool, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM jobs WHERE path=? AND state IN ('pending','running')`, path).Scan(&n)
+	return n > 0, err
+}
+
 func (s *Store) DoneTranscodes() ([]Job, error) {
 	rows, err := s.db.Query(`SELECT id, path, library, state, action, codec, reason, size_before, size_after,
 		attempts, error, backup, created_at, updated_at, started_at, finished_at

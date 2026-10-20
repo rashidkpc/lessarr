@@ -31,6 +31,7 @@ import (
 	"github.com/rashidkpc/lessarr/internal/queue"
 	"github.com/rashidkpc/lessarr/internal/scan"
 	"github.com/rashidkpc/lessarr/internal/selftest"
+	"github.com/rashidkpc/lessarr/internal/trash"
 	"github.com/rashidkpc/lessarr/internal/worker"
 )
 
@@ -63,6 +64,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdPause(args[1:], stdout, stderr, false)
 	case "analyze":
 		return cmdAnalyze(ctx, args[1:], stdout, stderr)
+	case "trash":
+		return cmdTrash(args[1:], stdout, stderr)
 	case "selftest":
 		return cmdSelftest(ctx, args[1:], stdout, stderr)
 	case "once":
@@ -88,6 +91,7 @@ Usage:
   lessarr status [--config FILE]
   lessarr pause|resume [--config FILE]
   lessarr analyze [--config FILE] <job-id>
+  lessarr trash stats|clean [--config FILE]
   lessarr probe [--config FILE] [--accurate] [--backend NAME] [--json] <file>
   lessarr stats [--config FILE] [--top N] [--workers N] [--reasons] <path>
   lessarr selftest [--config FILE] [--device PATH] [--seconds N] [path]
@@ -100,6 +104,7 @@ run      scan libraries, queue work, encode, and serve the status page.
 status   print queue and library counters from the database.
 pause    stop claiming new jobs; resume restarts them.
 analyze  measure a completed job's video/audio/subtitle savings and sampled SSIM.
+trash    report or prune retained originals under the configured retention and size cap.
 probe    explain what lessarr would do with one file, and why. Writes nothing.
 stats    walk a path, decide every file, report the projected outcome.
 selftest check this host: GPU, drivers, encoders, permissions. Writes nothing
@@ -419,6 +424,55 @@ func signedHumanBytes(n int64) string {
 		return "-" + humanBytes(-n)
 	}
 	return humanBytes(n)
+}
+
+func cmdTrash(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 || (args[0] != "stats" && args[0] != "clean") {
+		fmt.Fprintln(stderr, "usage: lessarr trash stats|clean [--config FILE]")
+		return 2
+	}
+	sub := args[0]
+	fs := flag.NewFlagSet("trash "+sub, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cfgPath := fs.String("config", "", "config file")
+	if err := fs.Parse(args[1:]); err != nil {
+		return 2
+	}
+	path, err := config.Find(*cfgPath)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	store, err := queue.Open(cfg.Server.DB)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	defer store.Close()
+
+	if sub == "stats" {
+		stats, err := trash.Summary(store)
+		if err != nil {
+			fmt.Fprintln(stderr, "lessarr:", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "trash: %d files, %s\n", stats.Files, humanBytes(stats.Bytes))
+		fmt.Fprintf(stdout, "policy: retention %s, cap %d GB\n", cfg.Trash.Retention.Std(), cfg.Trash.MaxSizeGB)
+		return 0
+	}
+	stats, err := trash.Prune(context.Background(), store, cfg.Trash, time.Now())
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "deleted: %d files, freed %s\n", stats.DeletedFiles, humanBytes(stats.Freed))
+	fmt.Fprintf(stdout, "remaining: %d files, %s\n", stats.Files, humanBytes(stats.Bytes))
+	return 0
 }
 
 func cmdProbe(ctx context.Context, args []string, stdout, stderr io.Writer) int {

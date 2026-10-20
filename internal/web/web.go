@@ -14,6 +14,7 @@ import (
 	"github.com/rashidkpc/lessarr/internal/compare"
 	"github.com/rashidkpc/lessarr/internal/config"
 	"github.com/rashidkpc/lessarr/internal/queue"
+	"github.com/rashidkpc/lessarr/internal/trash"
 )
 
 type Server struct {
@@ -21,6 +22,7 @@ type Server struct {
 	store     *queue.Store
 	version   string
 	progress  func() *Progress
+	retry     func(int64) error
 	templates *template.Template
 }
 
@@ -49,9 +51,9 @@ type Progress struct {
 	Updated     time.Time
 }
 
-func New(cfg *config.Config, store *queue.Store, version string, progress func() *Progress) *Server {
+func New(cfg *config.Config, store *queue.Store, version string, progress func() *Progress, retry func(int64) error) *Server {
 	return &Server{
-		cfg: cfg, store: store, version: version, progress: progress,
+		cfg: cfg, store: store, version: version, progress: progress, retry: retry,
 		templates: template.Must(template.New("root").Funcs(template.FuncMap{
 			"bytes":  humanBytes,
 			"when":   humanWhen,
@@ -79,6 +81,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.fragmentPage(w, r)
 	case r.URL.Path == "/files" && r.Method == http.MethodGet:
 		s.filesPage(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/jobs/") && strings.HasSuffix(r.URL.Path, "/retry") && r.Method == http.MethodPost:
+		s.retryJob(w, r)
 	case strings.HasPrefix(r.URL.Path, "/jobs/") && r.Method == http.MethodGet:
 		s.jobPage(w, r)
 	case strings.HasPrefix(r.URL.Path, "/comparisons/"):
@@ -128,6 +132,24 @@ func (s *Server) setPaused(w http.ResponseWriter, r *http.Request, paused bool) 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+func (s *Server) retryJob(w http.ResponseWriter, r *http.Request) {
+	idText := strings.Trim(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/jobs/"), "/retry"), "/")
+	id, err := strconv.ParseInt(idText, 10, 64)
+	if err != nil || id <= 0 {
+		http.Error(w, "invalid job ID", http.StatusBadRequest)
+		return
+	}
+	if s.retry == nil {
+		http.Error(w, "retry is unavailable", http.StatusInternalServerError)
+		return
+	}
+	if err := s.retry(id); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	http.Redirect(w, r, "/?tab=queued", http.StatusSeeOther)
+}
+
 func (s *Server) statusPage(w http.ResponseWriter, r *http.Request) {
 	status, err := s.prepareStatus(r)
 	if err != nil {
@@ -173,6 +195,9 @@ type Status struct {
 	Queued        []queue.Job
 	Done          []queue.Job
 	Failed        []queue.Job
+	TrashFiles    int
+	TrashBytes    int64
+	TrashLimitGB  int64
 }
 
 func (s *Server) collect() (Status, error) {
@@ -200,6 +225,10 @@ func (s *Server) collect() (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
+	trashStats, err := trash.Summary(s.store)
+	if err != nil {
+		return Status{}, err
+	}
 	if queued == nil {
 		queued = []queue.Job{}
 	}
@@ -216,6 +245,7 @@ func (s *Server) collect() (Status, error) {
 	status := Status{
 		Version: s.version, Paused: paused, Counts: counts,
 		Current: current, Progress: progress, Queued: queued, Done: done, Failed: failed,
+		TrashFiles: trashStats.Files, TrashBytes: trashStats.Bytes, TrashLimitGB: s.cfg.Trash.MaxSizeGB,
 	}
 	for _, l := range s.cfg.Libraries {
 		if l.Write {

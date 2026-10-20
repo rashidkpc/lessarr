@@ -58,6 +58,7 @@ const dashboardHTML = `{{define "dashboard"}}
 <div class="muted">
 {{if .Paused}}<span class="badge warn">paused</span>{{else}}<span class="badge ok">running</span>{{end}}
 {{if .WritesEnabled}}<span class="badge ok">writes enabled</span>{{else}}<span class="badge">observe only</span>{{end}}
+&nbsp; trash {{bytes .TrashBytes}}{{if gt .TrashLimitGB 0}} / {{.TrashLimitGB}} GB{{end}} ({{.TrashFiles}})
 </div>
 <form method="post" action="{{if .Paused}}/api/resume{{else}}/api/pause{{end}}">
 <button type="submit" title="{{if .Paused}}Resume claiming jobs{{else}}Finish the current job, then stop claiming new jobs{{end}}">{{if .Paused}}Resume{{else}}Pause{{end}}</button>
@@ -260,6 +261,11 @@ const jobHTML = `{{define "job"}}{{template "head"}}
 &nbsp; <a href="/files?q={{urlquery .Path}}">file decisions</a>
 {{if .HasComparison}}&nbsp; <a href="/comparisons/{{.ID}}/">compare original vs new</a>{{end}}
 </div>
+{{if .CanRetry}}
+<form method="post" action="/api/jobs/{{.ID}}/retry" style="margin:.8rem 0" onsubmit="return confirm('Restore the original and re-transcode with current settings?')">
+<button type="submit">Retry with current settings</button>
+</form>
+{{end}}
 
 <h2>File</h2>
 <div class="card">

@@ -21,6 +21,7 @@ import (
 	"github.com/rashidkpc/lessarr/internal/probe"
 	"github.com/rashidkpc/lessarr/internal/queue"
 	"github.com/rashidkpc/lessarr/internal/scan"
+	"github.com/rashidkpc/lessarr/internal/trash"
 	"github.com/rashidkpc/lessarr/internal/web"
 	"github.com/rashidkpc/lessarr/internal/worker"
 )
@@ -58,6 +59,7 @@ type Daemon struct {
 	progressMu sync.Mutex
 	progress   web.Progress
 	compareCh  chan int64
+	trashMu    sync.Mutex
 }
 
 // Run blocks until ctx is cancelled. With Once set it performs a single scan
@@ -108,7 +110,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 	fmt.Fprintf(d.log, "backend: %s (%s)\n", selection.Backend.Name, selection.Reason)
 
-	handler := web.New(d.cfg, d.store, o.Version, d.currentProgress)
+	handler := web.New(d.cfg, d.store, o.Version, d.currentProgress, d.Retry)
 	server := &http.Server{
 		Addr:              d.cfg.Server.Listen,
 		Handler:           handler,
@@ -142,6 +144,11 @@ func Run(ctx context.Context, o Options) error {
 		d.compareWorker(ctx)
 	}()
 	d.backfillComparisons()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		d.trashLoop(ctx)
+	}()
 
 	<-ctx.Done()
 	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -356,6 +363,109 @@ func (d *Daemon) runJob(ctx context.Context, n int, job *queue.Job) {
 		humanBytes(job.SizeBefore), humanBytes(after), result.Elapsed.Round(time.Second))
 	if job.Action == string(decision.Transcode) && result.Backup != "" {
 		d.enqueueCompare(job.ID)
+	}
+	d.pruneTrash(ctx)
+}
+
+// Retry restores a retained original over the current output and queues a
+// fresh job under the current library settings.
+func (d *Daemon) Retry(jobID int64) error {
+	d.trashMu.Lock()
+	defer d.trashMu.Unlock()
+	job, err := d.store.Job(jobID)
+	if err != nil {
+		return err
+	}
+	if job == nil {
+		return fmt.Errorf("job %d not found", jobID)
+	}
+	if job.Backup == "" {
+		return fmt.Errorf("original is no longer available")
+	}
+	backup := filepath.Clean(job.Backup)
+	if filepath.Base(filepath.Dir(backup)) != ".lessarr-trash" {
+		return fmt.Errorf("refusing to restore non-trash path")
+	}
+	fi, err := os.Lstat(backup)
+	if err != nil {
+		return fmt.Errorf("original is unavailable: %w", err)
+	}
+	if !fi.Mode().IsRegular() || fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("original is not a regular file")
+	}
+	lib, ok := d.cfg.LibraryFor(job.Path)
+	if !ok {
+		return fmt.Errorf("file is outside configured libraries")
+	}
+	if !lib.Write {
+		return fmt.Errorf("library %q is observe-only; enable write before retrying", lib.Name)
+	}
+	active, err := d.store.HasActiveJob(job.Path)
+	if err != nil {
+		return err
+	}
+	if active {
+		return fmt.Errorf("file already has an active job")
+	}
+	if out, err := os.Lstat(job.Path); err == nil {
+		if !out.Mode().IsRegular() || out.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("current output is not a regular file")
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	probeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	info, err := d.prober.Probe(probeCtx, backup)
+	if err != nil {
+		return fmt.Errorf("probe original: %w", err)
+	}
+	if err := os.Rename(backup, job.Path); err != nil {
+		return fmt.Errorf("restore original: %w", err)
+	}
+	if err := d.store.ClearBackup(job.ID); err != nil {
+		fmt.Fprintf(d.log, "retry %d: clear backup: %v\n", job.ID, err)
+	}
+	added, err := d.store.Enqueue(queue.Job{
+		Path: job.Path, Library: lib.Name, Action: string(decision.Transcode),
+		Codec: info.Video.Codec, Reason: "retry requested from retained original",
+		SizeBefore: info.Size,
+	})
+	if err != nil {
+		return err
+	}
+	if !added {
+		return fmt.Errorf("file already has an active job")
+	}
+	fmt.Fprintf(d.log, "job %d retry: restored original and queued again\n", job.ID)
+	return nil
+}
+
+func (d *Daemon) trashLoop(ctx context.Context) {
+	d.pruneTrash(ctx)
+	ticker := time.NewTicker(6 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			d.pruneTrash(ctx)
+		}
+	}
+}
+
+func (d *Daemon) pruneTrash(ctx context.Context) {
+	d.trashMu.Lock()
+	defer d.trashMu.Unlock()
+	stats, err := trash.Prune(ctx, d.store, d.cfg.Trash, time.Now())
+	if err != nil {
+		fmt.Fprintf(d.log, "trash: %v\n", err)
+		return
+	}
+	if stats.DeletedFiles > 0 || stats.Files > 0 {
+		fmt.Fprintf(d.log, "trash: %d files, %s remaining; deleted %d, freed %s\n",
+			stats.Files, humanBytes(stats.Bytes), stats.DeletedFiles, humanBytes(stats.Freed))
 	}
 }
 
