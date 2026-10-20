@@ -201,9 +201,11 @@ func (s *Store) Enqueue(j Job) (bool, error) {
 	now := time.Now().Unix()
 	// If a config change gives this path a more specific library, move the
 	// existing pending job with it instead of leaving it under the old policy.
-	res, err := s.db.Exec(`UPDATE jobs SET library=?, action=?, codec=?, reason=?, size_before=?, updated_at=?
+	res, err := s.db.Exec(`UPDATE jobs SET
+		library=?, action=?, codec=?, reason=?, size_before=?, updated_at=?,
+		next_attempt_at=CASE WHEN library <> ? THEN 0 ELSE next_attempt_at END
 		WHERE path=? AND state='pending'`,
-		j.Library, j.Action, j.Codec, j.Reason, j.SizeBefore, now, j.Path)
+		j.Library, j.Action, j.Codec, j.Reason, j.SizeBefore, now, j.Library, j.Path)
 	if err != nil {
 		return false, fmt.Errorf("refresh pending job: %w", err)
 	}

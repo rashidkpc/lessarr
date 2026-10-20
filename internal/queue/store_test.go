@@ -239,6 +239,9 @@ func TestEnqueueReassignsPendingJobToSpecificLibrary(t *testing.T) {
 	if _, err := s.Enqueue(Job{Path: path, Library: "TV", Action: "transcode", SizeBefore: 100}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := s.db.Exec(`UPDATE jobs SET next_attempt_at=? WHERE path=?`, time.Now().Add(time.Hour).Unix(), path); err != nil {
+		t.Fatal(err)
+	}
 	if added, err := s.Enqueue(Job{Path: path, Library: "Show S1", Action: "transcode", SizeBefore: 100}); err != nil || added {
 		t.Fatalf("reassign Enqueue = %v, %v", added, err)
 	}
