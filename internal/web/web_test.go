@@ -127,6 +127,42 @@ func TestPagePollsFragmentInsteadOfReloading(t *testing.T) {
 	}
 }
 
+func TestSamplingProgressIsCollapsedWithSubBar(t *testing.T) {
+	store, err := queue.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	cfg := config.Default()
+	cfg.Libraries = []config.Library{{Name: "Movies", Path: "/media/movies"}}
+	if _, err := store.Enqueue(queue.Job{Path: "/media/movies/a.mkv", Library: "Movies", Action: "remux", SizeBefore: 123}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Claim(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	s := New(&cfg, store, "test", func() *Progress {
+		return &Progress{JobID: 1, Phase: "validating", Stage: "sampling 3/5",
+			SampleDone: 2, SampleTotal: 5, SamplePct: 40, Started: now, Updated: now,
+			Steps: []Step{
+				{Label: "validating", Done: true},
+				{Label: "scanning packets", Done: true},
+				{Label: "sampling 1/5", Done: true},
+				{Label: "sampling 2/5", Done: true},
+				{Label: "sampling 3/5"},
+			}}
+	})
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	body := w.Body.String()
+	for _, want := range []string{"sampling 3/5", `details class="stages"`, "sampling 2/5", "width:40.0%"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("sampling progress missing %q", want)
+		}
+	}
+}
+
 func TestPauseAndResumeEndpoint(t *testing.T) {
 	s := testServer(t)
 	w := httptest.NewRecorder()
@@ -204,7 +240,7 @@ func TestProgressAppearsInStatusAndPage(t *testing.T) {
 	}
 	now := time.Now()
 	s := New(&cfg, store, "test", func() *Progress {
-		return &Progress{JobID: 7, Phase: "encoding", Percent: 42, Frame: 1234,
+		return &Progress{JobID: 7, Phase: "encoding", Stage: "encoding", Percent: 42, Frame: 1234,
 			OutTime: 30 * time.Second, Duration: 2 * time.Minute, Speed: "2.4x",
 			TotalSize: 100 << 20, Started: now, Updated: now,
 			Steps: []Step{{Label: "preparing", Done: true}, {Label: "encoding"}}}

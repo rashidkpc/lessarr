@@ -34,6 +34,11 @@ code { color:#b7d6a8; }
 .notice { margin:1rem 0; border-color:#4a3410; }
 .bar { height:10px; background:#222; border-radius:999px; overflow:hidden; margin:.7rem 0 .4rem; }
 .bar span { display:block; height:100%; background:#2d7a4a; }
+.stage { font-size:1.05rem; margin:.7rem 0 .2rem; color:#eee; }
+.stages { margin-top:.6rem; }
+.stages summary { cursor:pointer; color:#8ab4f8; }
+.subbar { height:6px; width:min(360px,100%); background:#222; border-radius:999px; overflow:hidden; margin:.6rem 0 .2rem; }
+.subbar span { display:block; height:100%; background:#2d4a7a; }
 .steps { display:flex; flex-wrap:wrap; gap:.35rem; margin:.7rem 0 .2rem; }
 .step { padding:.12rem .45rem; border-radius:999px; background:#222; color:#777; font-size:.85rem; }
 .step.done { background:#1b3a1b; color:#9c9; }
@@ -71,23 +76,29 @@ const dashboardHTML = `{{define "dashboard"}}
 <div class="muted">{{.Current.Action}} · {{.Current.Library}} · started {{when .Current.StartedAt}}</div>
 <div>{{.Current.Reason}}</div>
 {{if .Progress}}
-{{if .Progress.Steps}}
-<div class="steps">
-{{range .Progress.Steps}}<span class="step {{if .Done}}done{{else}}current{{end}}">{{.Label}}</span>{{end}}
-</div>
-{{end}}
+<div class="stage">{{if .Progress.Stage}}{{.Progress.Stage}}{{else}}{{.Progress.Phase}}{{end}}</div>
 {{if gt .Progress.Frame 0}}
 <div class="bar"><span style="width:{{printf "%.1f" .Progress.Percent}}%"></span></div>
 <div class="muted">
-{{.Progress.Phase}} · {{printf "%.0f%%" .Progress.Percent}}
+{{printf "%.0f%%" .Progress.Percent}}
 · {{.Progress.Frame}} frames
 · {{dur .Progress.OutTime}} / {{dur .Progress.Duration}}
 {{if .Progress.Speed}} · speed {{.Progress.Speed}}{{end}}
 · {{bytes .Progress.TotalSize}} written
 · updated {{when .Progress.Updated}}
 </div>
-{{else}}
-<div class="muted">{{.Progress.Phase}} · updated {{when .Progress.Updated}}</div>
+{{end}}
+{{if .Progress.Steps}}
+<details class="stages">
+<summary>All stages <span class="muted">({{len .Progress.Steps}})</span></summary>
+{{if and (gt .Progress.SampleTotal 0) (lt .Progress.SampleDone .Progress.SampleTotal)}}
+<div class="subbar"><span style="width:{{printf "%.1f" .Progress.SamplePct}}%"></span></div>
+<div class="muted">sampling {{.Progress.SampleDone}}/{{.Progress.SampleTotal}}</div>
+{{end}}
+<div class="steps">
+{{range .Progress.Steps}}<span class="step {{if .Done}}done{{else}}current{{end}}">{{.Label}}</span>{{end}}
+</div>
+</details>
 {{end}}
 {{end}}
 </div>
@@ -154,6 +165,11 @@ const pageHTML = `{{define "page"}}{{template "head"}}
 (function () {
   var live = document.getElementById("live");
   var tab = live.getAttribute("data-tab") || "running";
+  live.addEventListener("toggle", function (e) {
+    if (e.target && e.target.classList && e.target.classList.contains("stages")) {
+      sessionStorage.setItem("lessarr-stages", e.target.open ? "1" : "0");
+    }
+  }, true);
   function refresh() {
     if (document.hidden) {
       setTimeout(refresh, 2000);
@@ -161,7 +177,12 @@ const pageHTML = `{{define "page"}}{{template "head"}}
     }
     fetch("/fragment?tab=" + encodeURIComponent(tab), {cache: "no-store"})
       .then(function (r) { return r.ok ? r.text() : ""; })
-      .then(function (html) { if (html) live.innerHTML = html; })
+      .then(function (html) {
+        if (!html) return;
+        live.innerHTML = html;
+        var stages = live.querySelector("details.stages");
+        if (stages) stages.open = sessionStorage.getItem("lessarr-stages") === "1";
+      })
       .catch(function () {})
       .then(function () { setTimeout(refresh, 2000); });
   }

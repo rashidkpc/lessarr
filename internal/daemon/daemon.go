@@ -400,6 +400,22 @@ func (d *Daemon) addProgressStepLocked(label string) {
 		d.progress.Steps[n-1].Done = true
 	}
 	d.progress.Steps = append(d.progress.Steps, web.Step{Label: label, At: now})
+	d.progress.Stage = label
+	d.progress.SampleDone = 0
+	d.progress.SampleTotal = 0
+	for _, step := range d.progress.Steps {
+		var index, total int
+		if _, err := fmt.Sscanf(step.Label, "sampling %d/%d", &index, &total); err != nil || total <= 0 {
+			continue
+		}
+		d.progress.SampleTotal = total
+		if step.Done {
+			d.progress.SampleDone++
+		}
+	}
+	if d.progress.SampleTotal > 0 {
+		d.progress.SamplePct = float64(d.progress.SampleDone) / float64(d.progress.SampleTotal) * 100
+	}
 	d.progress.Updated = now
 }
 

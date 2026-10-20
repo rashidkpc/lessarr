@@ -31,17 +31,21 @@ type Step struct {
 
 // Progress is a snapshot of the currently running job's encoder progress.
 type Progress struct {
-	JobID     int64
-	Phase     string
-	Frame     int64
-	OutTime   time.Duration
-	Duration  time.Duration
-	Speed     string
-	TotalSize int64
-	Percent   float64
-	Steps     []Step
-	Started   time.Time
-	Updated   time.Time
+	JobID       int64
+	Phase       string
+	Frame       int64
+	OutTime     time.Duration
+	Duration    time.Duration
+	Speed       string
+	TotalSize   int64
+	Percent     float64
+	Stage       string
+	Steps       []Step
+	SampleDone  int
+	SampleTotal int
+	SamplePct   float64
+	Started     time.Time
+	Updated     time.Time
 }
 
 func New(cfg *config.Config, store *queue.Store, version string, progress func() *Progress) *Server {
