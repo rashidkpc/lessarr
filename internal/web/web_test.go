@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -55,6 +56,40 @@ func TestStatusPageTabs(t *testing.T) {
 	}
 	if strings.Count(body, "tab active") != 1 {
 		t.Errorf("expected exactly one active tab, got %d", strings.Count(body, "tab active"))
+	}
+}
+
+func TestJobPage(t *testing.T) {
+	s := testServer(t)
+	path := "/media/movies/Example.mkv"
+	if err := s.store.PutFile(queue.File{Path: path, Library: "Movies", Size: 1234,
+		Action: "transcode", Reason: "h264 video", Codec: "h264"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.Enqueue(queue.Job{Path: path, Library: "Movies", Action: "transcode",
+		Reason: "h264 video", SizeBefore: 1234}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.store.Claim(time.Now())
+	if err != nil || job == nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/jobs/"+strconv.FormatInt(job.ID, 10), nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	body := w.Body.String()
+	for _, want := range []string{"Example.mkv", "Decision", "h264 video", "running"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("job page missing %q", want)
+		}
+	}
+	w = httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/jobs/9999", nil))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("missing job status = %d", w.Code)
 	}
 }
 

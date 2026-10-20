@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rashidkpc/lessarr/internal/config"
@@ -44,7 +45,7 @@ func New(cfg *config.Config, store *queue.Store, version string, progress func()
 			"when":  humanWhen,
 			"saved": savedPercent,
 			"dur":   humanDuration,
-		}).Parse(sharedHTML + pageHTML + filesHTML)),
+		}).Parse(sharedHTML + pageHTML + filesHTML + jobHTML)),
 	}
 }
 
@@ -59,6 +60,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.statusPage(w, r)
 	case r.URL.Path == "/files" && r.Method == http.MethodGet:
 		s.filesPage(w, r)
+	case strings.HasPrefix(r.URL.Path, "/jobs/") && r.Method == http.MethodGet:
+		s.jobPage(w, r)
 	default:
 		http.NotFound(w, r)
 	}

@@ -169,6 +169,27 @@ func TestFilesJoinActiveJobAndFilter(t *testing.T) {
 	}
 }
 
+func TestJobByID(t *testing.T) {
+	s := openTest(t)
+	if _, err := s.Enqueue(Job{Path: "/media/a.mkv", Library: "TV", Action: "transcode", Reason: "h264"}); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := s.Claim(time.Now())
+	if err != nil || claimed == nil {
+		t.Fatal(err)
+	}
+	got, err := s.Job(claimed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || got.Path != "/media/a.mkv" || got.State != Running {
+		t.Fatalf("Job() = %+v", got)
+	}
+	if missing, err := s.Job(9999); err != nil || missing != nil {
+		t.Fatalf("missing job = %+v, %v", missing, err)
+	}
+}
+
 func TestPauseAndResetRunning(t *testing.T) {
 	s := openTest(t)
 	if paused, err := s.Paused(); err != nil || paused {

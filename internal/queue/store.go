@@ -468,6 +468,21 @@ func (s *Store) Recent(limit int) ([]Job, error) {
 	return jobs, rows.Err()
 }
 
+// Job returns one job by ID, or nil when it does not exist.
+func (s *Store) Job(id int64) (*Job, error) {
+	row := s.db.QueryRow(`SELECT id, path, library, state, action, codec, reason, size_before, size_after,
+		attempts, error, backup, created_at, updated_at, started_at, finished_at
+		FROM jobs WHERE id = ?`, id)
+	j, err := scanJob(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &j, nil
+}
+
 func (s *Store) Current() (*Job, error) {
 	row := s.db.QueryRow(`SELECT id, path, library, state, action, codec, reason, size_before, size_after,
 		attempts, error, backup, created_at, updated_at, started_at, finished_at

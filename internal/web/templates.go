@@ -85,7 +85,7 @@ const pageHTML = `{{define "page"}}{{template "head"}}
 <tr><th>File</th><th>Library</th><th>Action</th><th>Size</th></tr>
 {{range .Queued}}
 <tr>
-<td><code>{{.Path}}</code></td>
+<td><a href="/jobs/{{.ID}}"><code>{{.Path}}</code></a></td>
 <td>{{.Library}}</td>
 <td><span class="badge">{{.Action}}</span></td>
 <td>{{bytes .SizeBefore}}</td>
@@ -101,7 +101,7 @@ const pageHTML = `{{define "page"}}{{template "head"}}
 <tr><th>File</th><th>Action</th><th>Size</th><th>When</th></tr>
 {{range .Done}}
 <tr>
-<td><code>{{.Path}}</code></td>
+<td><a href="/jobs/{{.ID}}"><code>{{.Path}}</code></a></td>
 <td>{{.Action}}</td>
 <td>{{bytes .SizeBefore}}{{if gt .SizeAfter 0}} → {{bytes .SizeAfter}} <span class="muted">({{saved .SizeBefore .SizeAfter}})</span>{{end}}</td>
 <td class="muted">{{when .FinishedAt}}</td>
@@ -116,7 +116,7 @@ const pageHTML = `{{define "page"}}{{template "head"}}
 <tr><th>File</th><th>Error</th><th>When</th></tr>
 {{range .Failed}}
 <tr>
-<td><code>{{.Path}}</code></td>
+<td><a href="/jobs/{{.ID}}"><code>{{.Path}}</code></a></td>
 <td><span class="err">{{.Error}}</span></td>
 <td class="muted">{{when .UpdatedAt}}</td>
 </tr>
@@ -172,7 +172,7 @@ No library has <code>write = true</code>, so the worker will not claim them yet.
 <td>{{.Library}}</td>
 <td><span class="badge">{{.Action}}</span></td>
 <td>{{bytes .Size}}</td>
-<td>{{if .QueueLabel}}<span class="badge {{.QueueClass}}">{{.QueueLabel}}</span>{{end}}</td>
+<td>{{if .JobID}}<a href="/jobs/{{.JobID}}"><span class="badge {{.QueueClass}}">{{.QueueLabel}}</span></a>{{else if .QueueLabel}}<span class="badge {{.QueueClass}}">{{.QueueLabel}}</span>{{end}}</td>
 <td class="muted">{{.Reason}}</td>
 <td class="muted">{{when .CheckedAt}}</td>
 </tr>
@@ -186,4 +186,39 @@ Showing {{.Start}}–{{.End}} of {{.Total}}
 {{if .PrevHref}} · <a href="{{.PrevHref}}">Previous</a>{{end}}
 {{if .NextHref}} · <a href="{{.NextHref}}">Next</a>{{end}}
 </div>
+{{end}}`
+
+const jobHTML = `{{define "job"}}{{template "head"}}
+<h1>Job #{{.ID}}
+<span class="badge {{if eq .StateName "done"}}ok{{else if eq .StateName "failed"}}err{{else if eq .StateName "running"}}warn{{end}}">{{.StateName}}</span>
+</h1>
+{{template "nav"}}
+<div class="muted">
+{{if eq .StateName "pending"}}<a href="/?tab=queued">← Queued</a>{{else if eq .StateName "done"}}<a href="/?tab=done">← Done</a>{{else if eq .StateName "failed"}}<a href="/?tab=failed">← Failed</a>{{else}}<a href="/?tab=running">← Running</a>{{end}}
+&nbsp; <a href="/files?q={{urlquery .Path}}">file decisions</a>
+</div>
+
+<h2>File</h2>
+<div class="card">
+<div style="word-break:break-all"><code>{{.Path}}</code></div>
+<div class="muted">{{.Library}} · {{.Action}} · {{.Codec}}</div>
+</div>
+
+<h2>Result</h2>
+<table>
+<tr><th>Size</th><td>{{bytes .SizeBefore}}{{if and (eq .StateName "done") (gt .SizeAfter 0)}} → {{bytes .SizeAfter}} <span class="muted">({{saved .SizeBefore .SizeAfter}} smaller)</span>{{end}}</td></tr>
+<tr><th>Attempts</th><td>{{.Attempts}}</td></tr>
+<tr><th>Created</th><td>{{.CreatedAt.Format "2006-01-02 15:04:05"}} <span class="muted">({{when .CreatedAt}})</span></td></tr>
+{{if not .StartedAt.IsZero}}<tr><th>Started</th><td>{{.StartedAt.Format "2006-01-02 15:04:05"}}</td></tr>{{end}}
+{{if not .FinishedAt.IsZero}}<tr><th>Finished</th><td>{{.FinishedAt.Format "2006-01-02 15:04:05"}} <span class="muted">({{when .FinishedAt}})</span></td></tr>{{end}}
+{{if .Backup}}<tr><th>Original</th><td style="word-break:break-all"><code>{{.Backup}}</code></td></tr>{{end}}
+</table>
+
+<h2>Decision</h2>
+<div class="card" style="white-space:pre-wrap">{{.Reason}}</div>
+
+{{if .Error}}
+<h2>Error</h2>
+<div class="card" style="white-space:pre-wrap;border-color:#4a1b1b">{{.Error}}</div>
+{{end}}
 {{end}}`
