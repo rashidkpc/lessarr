@@ -56,7 +56,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/api/status":
 		s.statusJSON(w)
 	case r.URL.Path == "/" && r.Method == http.MethodGet:
-		s.statusPage(w)
+		s.statusPage(w, r)
 	case r.URL.Path == "/files" && r.Method == http.MethodGet:
 		s.filesPage(w, r)
 	default:
@@ -76,11 +76,23 @@ func (s *Server) statusJSON(w http.ResponseWriter) {
 	_ = enc.Encode(status)
 }
 
-func (s *Server) statusPage(w http.ResponseWriter) {
+func (s *Server) statusPage(w http.ResponseWriter, r *http.Request) {
 	status, err := s.collect()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	status.Tab = r.URL.Query().Get("tab")
+	switch status.Tab {
+	case "running", "queued", "done", "failed":
+	default:
+		status.Tab = "running"
+	}
+	status.Tabs = []TabLink{
+		{Key: "running", Label: "Running", Count: status.Counts.Running, Href: "/?tab=running", Active: status.Tab == "running"},
+		{Key: "queued", Label: "Queued", Count: status.Counts.Pending, Href: "/?tab=queued", Active: status.Tab == "queued"},
+		{Key: "done", Label: "Done", Count: status.Counts.Done, Href: "/?tab=done", Active: status.Tab == "done"},
+		{Key: "failed", Label: "Failed", Count: status.Counts.Failed, Href: "/?tab=failed", Active: status.Tab == "failed"},
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.templates.ExecuteTemplate(w, "page", status); err != nil {
@@ -88,10 +100,20 @@ func (s *Server) statusPage(w http.ResponseWriter) {
 	}
 }
 
+type TabLink struct {
+	Key    string
+	Label  string
+	Count  int
+	Href   string
+	Active bool
+}
+
 type Status struct {
 	Version       string
 	Paused        bool
 	WritesEnabled bool
+	Tab           string
+	Tabs          []TabLink
 	Counts        queue.Counts
 	Current       *queue.Job
 	Progress      *Progress

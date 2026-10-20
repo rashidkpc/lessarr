@@ -34,6 +34,11 @@ code { color:#b7d6a8; }
 .notice { margin:1rem 0; border-color:#4a3410; }
 .bar { height:10px; background:#222; border-radius:999px; overflow:hidden; margin:.7rem 0 .4rem; }
 .bar span { display:block; height:100%; background:#2d7a4a; }
+.tabs { display:flex; gap:.2rem; border-bottom:1px solid #2a2a2a; margin:1rem 0 1.2rem; }
+.tab { padding:.5rem .8rem; color:#999; border-bottom:2px solid transparent; }
+.tab.active { color:#fff; border-color:#8ab4f8; }
+.tab .count { color:#777; margin-left:.2rem; }
+.tab.active .count { color:#bbb; }
 </style>
 </head>
 <body>{{end}}
@@ -45,10 +50,15 @@ const pageHTML = `{{define "page"}}{{template "head"}}
 <div class="muted">
 {{if .Paused}}<span class="badge warn">paused</span>{{else}}<span class="badge ok">running</span>{{end}}
 {{if .WritesEnabled}}<span class="badge ok">writes enabled</span>{{else}}<span class="badge">observe only</span>{{end}}
-&nbsp; {{.Counts.Pending}} queued · {{.Counts.Done}} done{{if .Counts.Failed}} · {{.Counts.Failed}} failed{{end}}
 </div>
 
-<h2>Running</h2>
+<div class="tabs">
+{{range .Tabs}}
+<a class="tab {{if .Active}}active{{end}}" href="{{.Href}}">{{.Label}} <span class="count">{{.Count}}</span></a>
+{{end}}
+</div>
+
+{{if eq .Tab "running"}}
 {{if .Current}}
 <div class="card">
 <div><code>{{.Current.Path}}</code></div>
@@ -70,7 +80,7 @@ const pageHTML = `{{define "page"}}{{template "head"}}
 <div class="card muted">Nothing is running.</div>
 {{end}}
 
-<h2>Queued <span class="muted">{{.Counts.Pending}}</span></h2>
+{{else if eq .Tab "queued"}}
 <table>
 <tr><th>File</th><th>Library</th><th>Action</th><th>Size</th></tr>
 {{range .Queued}}
@@ -84,9 +94,9 @@ const pageHTML = `{{define "page"}}{{template "head"}}
 <tr><td colspan="4" class="muted">Queue is empty.</td></tr>
 {{end}}
 </table>
-{{if gt .Counts.Pending (len .Queued)}}<div class="muted"><a href="/files?queue=pending">View all queued files</a></div>{{end}}
+{{if gt .Counts.Pending (len .Queued)}}<div class="muted" style="margin-top:.8rem"><a href="/files?queue=pending">View all queued files</a></div>{{end}}
 
-<h2>Done</h2>
+{{else if eq .Tab "done"}}
 <table>
 <tr><th>File</th><th>Action</th><th>Size</th><th>When</th></tr>
 {{range .Done}}
@@ -101,8 +111,7 @@ const pageHTML = `{{define "page"}}{{template "head"}}
 {{end}}
 </table>
 
-{{if .Failed}}
-<h2>Failed</h2>
+{{else if eq .Tab "failed"}}
 <table>
 <tr><th>File</th><th>Error</th><th>When</th></tr>
 {{range .Failed}}
@@ -111,6 +120,8 @@ const pageHTML = `{{define "page"}}{{template "head"}}
 <td><span class="err">{{.Error}}</span></td>
 <td class="muted">{{when .UpdatedAt}}</td>
 </tr>
+{{else}}
+<tr><td colspan="3" class="muted">No failures.</td></tr>
 {{end}}
 </table>
 {{end}}

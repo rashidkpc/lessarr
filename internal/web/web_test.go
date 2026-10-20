@@ -41,6 +41,23 @@ func TestStatusPageRenders(t *testing.T) {
 	}
 }
 
+func TestStatusPageTabs(t *testing.T) {
+	s := testServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/?tab=queued", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `class="tab active" href="/?tab=queued"`) {
+		t.Error("queued tab should be active")
+	}
+	if strings.Count(body, "tab active") != 1 {
+		t.Errorf("expected exactly one active tab, got %d", strings.Count(body, "tab active"))
+	}
+}
+
 func TestStatusJSON(t *testing.T) {
 	s := testServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
