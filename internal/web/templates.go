@@ -44,14 +44,7 @@ code { color:#b7d6a8; }
 <body>{{end}}
 {{define "nav"}}<nav><a href="/">Dashboard</a><a href="/files">Files</a></nav>{{end}}`
 
-const pageHTML = `{{define "page"}}{{template "head"}}
-<h1>lessarr <span class="muted">v{{.Version}}</span></h1>
-{{template "nav"}}
-<div class="muted">
-{{if .Paused}}<span class="badge warn">paused</span>{{else}}<span class="badge ok">running</span>{{end}}
-{{if .WritesEnabled}}<span class="badge ok">writes enabled</span>{{else}}<span class="badge">observe only</span>{{end}}
-</div>
-
+const dashboardHTML = `{{define "dashboard"}}
 <div class="tabs">
 {{range .Tabs}}
 <a class="tab {{if .Active}}active{{end}}" href="{{.Href}}">{{.Label}} <span class="count">{{.Count}}</span></a>
@@ -125,8 +118,38 @@ const pageHTML = `{{define "page"}}{{template "head"}}
 {{end}}
 </table>
 {{end}}
+{{end}}`
 
-<script>setTimeout(function () { location.reload(); }, 5000);</script>
+const pageHTML = `{{define "page"}}{{template "head"}}
+<h1>lessarr <span class="muted">v{{.Version}}</span></h1>
+{{template "nav"}}
+<div class="muted">
+{{if .Paused}}<span class="badge warn">paused</span>{{else}}<span class="badge ok">running</span>{{end}}
+{{if .WritesEnabled}}<span class="badge ok">writes enabled</span>{{else}}<span class="badge">observe only</span>{{end}}
+</div>
+
+<div id="live" data-tab="{{.Tab}}">
+{{template "dashboard" .}}
+</div>
+
+<script>
+(function () {
+  var live = document.getElementById("live");
+  var tab = live.getAttribute("data-tab") || "running";
+  function refresh() {
+    if (document.hidden) {
+      setTimeout(refresh, 2000);
+      return;
+    }
+    fetch("/fragment?tab=" + encodeURIComponent(tab), {cache: "no-store"})
+      .then(function (r) { return r.ok ? r.text() : ""; })
+      .then(function (html) { if (html) live.innerHTML = html; })
+      .catch(function () {})
+      .then(function () { setTimeout(refresh, 2000); });
+  }
+  setTimeout(refresh, 2000);
+})();
+</script>
 {{end}}`
 
 const filesHTML = `{{define "files"}}{{template "head"}}

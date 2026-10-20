@@ -45,7 +45,7 @@ func New(cfg *config.Config, store *queue.Store, version string, progress func()
 			"when":  humanWhen,
 			"saved": savedPercent,
 			"dur":   humanDuration,
-		}).Parse(sharedHTML + pageHTML + filesHTML + jobHTML)),
+		}).Parse(sharedHTML + dashboardHTML + pageHTML + filesHTML + jobHTML)),
 	}
 }
 
@@ -58,6 +58,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.statusJSON(w)
 	case r.URL.Path == "/" && r.Method == http.MethodGet:
 		s.statusPage(w, r)
+	case r.URL.Path == "/fragment" && r.Method == http.MethodGet:
+		s.fragmentPage(w, r)
 	case r.URL.Path == "/files" && r.Method == http.MethodGet:
 		s.filesPage(w, r)
 	case strings.HasPrefix(r.URL.Path, "/jobs/") && r.Method == http.MethodGet:
@@ -79,11 +81,10 @@ func (s *Server) statusJSON(w http.ResponseWriter) {
 	_ = enc.Encode(status)
 }
 
-func (s *Server) statusPage(w http.ResponseWriter, r *http.Request) {
+func (s *Server) prepareStatus(r *http.Request) (Status, error) {
 	status, err := s.collect()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return Status{}, err
 	}
 	status.Tab = r.URL.Query().Get("tab")
 	switch status.Tab {
@@ -97,8 +98,30 @@ func (s *Server) statusPage(w http.ResponseWriter, r *http.Request) {
 		{Key: "done", Label: "Done", Count: status.Counts.Done, Href: "/?tab=done", Active: status.Tab == "done"},
 		{Key: "failed", Label: "Failed", Count: status.Counts.Failed, Href: "/?tab=failed", Active: status.Tab == "failed"},
 	}
+	return status, nil
+}
+
+func (s *Server) statusPage(w http.ResponseWriter, r *http.Request) {
+	status, err := s.prepareStatus(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.templates.ExecuteTemplate(w, "page", status); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (s *Server) fragmentPage(w http.ResponseWriter, r *http.Request) {
+	status, err := s.prepareStatus(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	if err := s.templates.ExecuteTemplate(w, "dashboard", status); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }

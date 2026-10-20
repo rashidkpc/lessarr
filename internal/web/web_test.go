@@ -93,6 +93,40 @@ func TestJobPage(t *testing.T) {
 	}
 }
 
+func TestFragmentUpdatesWithoutPageShell(t *testing.T) {
+	s := testServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/fragment?tab=queued", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "<html") || strings.Contains(body, "<script") {
+		t.Error("fragment should not include the page shell")
+	}
+	if !strings.Contains(body, "Queued") || !strings.Contains(body, `href="/?tab=queued"`) {
+		t.Error("fragment should render the tab bar")
+	}
+	if got := w.Header().Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control = %q", got)
+	}
+}
+
+func TestPagePollsFragmentInsteadOfReloading(t *testing.T) {
+	s := testServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	body := w.Body.String()
+	if !strings.Contains(body, `id="live"`) || !strings.Contains(body, "/fragment?tab=") {
+		t.Error("page should poll the live fragment endpoint")
+	}
+	if strings.Contains(body, "location.reload") {
+		t.Error("page should not reload the whole document")
+	}
+}
+
 func TestStatusJSON(t *testing.T) {
 	s := testServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
