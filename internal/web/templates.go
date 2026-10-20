@@ -109,46 +109,49 @@ const dashboardHTML = `{{define "dashboard"}}
 
 {{else if eq .Tab "queued"}}
 <table>
-<tr><th>File</th><th>Library</th><th>Action</th><th>Size</th></tr>
+<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th>Size</th></tr>
 {{range .Queued}}
 <tr>
+<td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
 <td><a href="/jobs/{{.ID}}"><code>{{.Path}}</code></a></td>
 <td>{{.Library}}</td>
 <td><span class="badge">{{.Action}}</span></td>
 <td>{{bytes .SizeBefore}}</td>
 </tr>
 {{else}}
-<tr><td colspan="4" class="muted">Queue is empty.</td></tr>
+<tr><td colspan="5" class="muted">Queue is empty.</td></tr>
 {{end}}
 </table>
 {{if gt .Counts.Pending (len .Queued)}}<div class="muted" style="margin-top:.8rem"><a href="/files?queue=pending">View all queued files</a></div>{{end}}
 
 {{else if eq .Tab "done"}}
 <table>
-<tr><th>File</th><th>Action</th><th>Size</th><th>When</th></tr>
+<tr><th>#</th><th>File</th><th>Action</th><th>Size</th><th>When</th></tr>
 {{range .Done}}
 <tr>
+<td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
 <td><a href="/jobs/{{.ID}}"><code>{{.Path}}</code></a></td>
 <td>{{.Action}}</td>
 <td>{{bytes .SizeBefore}}{{if gt .SizeAfter 0}} → {{bytes .SizeAfter}} <span class="muted">({{saved .SizeBefore .SizeAfter}})</span>{{end}}</td>
 <td class="muted">{{when .FinishedAt}}</td>
 </tr>
 {{else}}
-<tr><td colspan="4" class="muted">Nothing completed yet.</td></tr>
+<tr><td colspan="5" class="muted">Nothing completed yet.</td></tr>
 {{end}}
 </table>
 
 {{else if eq .Tab "failed"}}
 <table>
-<tr><th>File</th><th>Error</th><th>When</th></tr>
+<tr><th>#</th><th>File</th><th>Error</th><th>When</th></tr>
 {{range .Failed}}
 <tr>
+<td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
 <td><a href="/jobs/{{.ID}}"><code>{{.Path}}</code></a></td>
 <td><span class="err">{{.Error}}</span></td>
 <td class="muted">{{when .UpdatedAt}}</td>
 </tr>
 {{else}}
-<tr><td colspan="3" class="muted">No failures.</td></tr>
+<tr><td colspan="4" class="muted">No failures.</td></tr>
 {{end}}
 </table>
 {{end}}
@@ -228,9 +231,10 @@ No library has <code>write = true</code>, so the worker will not claim them yet.
 </form>
 
 <table>
-<tr><th>File</th><th>Library</th><th>Action</th><th>Size</th><th>Queue</th><th>Decision</th><th>Checked</th></tr>
+<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th>Size</th><th>Queue</th><th>Decision</th><th>Checked</th></tr>
 {{range .Rows}}
 <tr>
+<td>{{if .JobID}}<a href="/jobs/{{.JobID}}">{{.JobID}}</a>{{else}}—{{end}}</td>
 <td><code>{{.Path}}</code></td>
 <td>{{.Library}}</td>
 <td><span class="badge">{{.Action}}</span></td>
@@ -240,7 +244,7 @@ No library has <code>write = true</code>, so the worker will not claim them yet.
 <td class="muted">{{when .CheckedAt}}</td>
 </tr>
 {{else}}
-<tr><td colspan="7" class="muted">No files match this filter.</td></tr>
+<tr><td colspan="8" class="muted">No files match this filter.</td></tr>
 {{end}}
 </table>
 
