@@ -451,6 +451,27 @@ func (s *Store) FilesSummary() (map[string]Summary, error) {
 
 // ByState returns jobs in one state. Pending jobs are oldest first so the
 // dashboard shows the order they will run; finished jobs are newest first.
+// DoneTranscodes returns successful transcodes that still have a retained
+// original. Startup backfill uses it to generate comparison images.
+func (s *Store) DoneTranscodes() ([]Job, error) {
+	rows, err := s.db.Query(`SELECT id, path, library, state, action, codec, reason, size_before, size_after,
+		attempts, error, backup, created_at, updated_at, started_at, finished_at
+		FROM jobs WHERE state='done' AND action='transcode' AND backup <> '' ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var jobs []Job
+	for rows.Next() {
+		j, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, j)
+	}
+	return jobs, rows.Err()
+}
+
 func (s *Store) ByState(state State, limit int) ([]Job, error) {
 	if limit <= 0 {
 		limit = 25

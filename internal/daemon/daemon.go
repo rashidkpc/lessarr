@@ -9,10 +9,12 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/rashidkpc/lessarr/internal/compare"
 	"github.com/rashidkpc/lessarr/internal/config"
 	"github.com/rashidkpc/lessarr/internal/decision"
 	"github.com/rashidkpc/lessarr/internal/ffmpeg"
@@ -55,6 +57,7 @@ type Daemon struct {
 	policy     decision.Policy
 	progressMu sync.Mutex
 	progress   web.Progress
+	compareCh  chan int64
 }
 
 // Run blocks until ctx is cancelled. With Once set it performs a single scan
@@ -132,6 +135,13 @@ func Run(ctx context.Context, o Options) error {
 			d.worker(ctx, n)
 		}(i + 1)
 	}
+	d.compareCh = make(chan int64, 128)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		d.compareWorker(ctx)
+	}()
+	d.backfillComparisons()
 
 	<-ctx.Done()
 	shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -344,6 +354,77 @@ func (d *Daemon) runJob(ctx context.Context, n int, job *queue.Job) {
 	}
 	fmt.Fprintf(d.log, "job %d done: %s -> %s in %s\n", job.ID,
 		humanBytes(job.SizeBefore), humanBytes(after), result.Elapsed.Round(time.Second))
+	if job.Action == string(decision.Transcode) && result.Backup != "" {
+		d.enqueueCompare(job.ID)
+	}
+}
+
+func (d *Daemon) enqueueCompare(jobID int64) {
+	if d.compareCh == nil {
+		return
+	}
+	select {
+	case d.compareCh <- jobID:
+	default:
+		fmt.Fprintf(d.log, "compare: queue full, skipping job %d for now\n", jobID)
+	}
+}
+
+func (d *Daemon) backfillComparisons() {
+	jobs, err := d.store.DoneTranscodes()
+	if err != nil {
+		fmt.Fprintf(d.log, "compare backfill: %v\n", err)
+		return
+	}
+	root := compare.Dir(d.cfg.Server.DB)
+	queued := 0
+	for _, job := range jobs {
+		if _, err := os.Stat(job.Backup); err != nil {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(root, fmt.Sprintf("%d", job.ID), "index.html")); err == nil {
+			continue
+		}
+		d.enqueueCompare(job.ID)
+		queued++
+	}
+	if queued > 0 {
+		fmt.Fprintf(d.log, "compare backfill: queued %d job(s)\n", queued)
+	}
+}
+
+func (d *Daemon) compareWorker(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case jobID := <-d.compareCh:
+			job, err := d.store.Job(jobID)
+			if err != nil {
+				fmt.Fprintf(d.log, "compare %d: %v\n", jobID, err)
+				continue
+			}
+			if job == nil || job.State != queue.Done || job.Action != string(decision.Transcode) || job.Backup == "" {
+				continue
+			}
+			if _, err := os.Stat(job.Backup); err != nil {
+				continue
+			}
+			info, err := d.prober.Probe(ctx, job.Path)
+			if err != nil {
+				fmt.Fprintf(d.log, "compare %d: probe: %v\n", jobID, err)
+				continue
+			}
+			err = compare.Generate(ctx, d.runner, info.Duration, compare.Task{
+				ID: job.ID, Source: job.Backup, Output: job.Path,
+			}, compare.Dir(d.cfg.Server.DB))
+			if err != nil {
+				fmt.Fprintf(d.log, "compare %d: %v\n", jobID, err)
+				continue
+			}
+			fmt.Fprintf(d.log, "compare %d: generated\n", jobID)
+		}
+	}
 }
 
 func (d *Daemon) supportsHardwareDecode(codec string) bool {

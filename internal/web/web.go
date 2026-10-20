@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rashidkpc/lessarr/internal/compare"
 	"github.com/rashidkpc/lessarr/internal/config"
 	"github.com/rashidkpc/lessarr/internal/queue"
 )
@@ -80,6 +81,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.filesPage(w, r)
 	case strings.HasPrefix(r.URL.Path, "/jobs/") && r.Method == http.MethodGet:
 		s.jobPage(w, r)
+	case strings.HasPrefix(r.URL.Path, "/comparisons/"):
+		http.StripPrefix("/comparisons/", http.FileServer(http.Dir(compare.Dir(s.cfg.Server.DB)))).ServeHTTP(w, r)
 	default:
 		http.NotFound(w, r)
 	}

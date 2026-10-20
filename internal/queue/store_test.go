@@ -250,3 +250,24 @@ func TestEnqueueReassignsPendingJobToSpecificLibrary(t *testing.T) {
 		t.Fatalf("Claim = %+v, %v", job, err)
 	}
 }
+
+func TestDoneTranscodes(t *testing.T) {
+	s := openTest(t)
+	if _, err := s.Enqueue(Job{Path: "/media/a.mkv", Library: "TV", Action: "transcode", Backup: ""}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.Claim(time.Now())
+	if err != nil || job == nil {
+		t.Fatal(err)
+	}
+	if err := s.Complete(job.ID, Done, 500, "/media/.lessarr-trash/a.mkv"); err != nil {
+		t.Fatal(err)
+	}
+	jobs, err := s.DoneTranscodes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs) != 1 || jobs[0].ID != job.ID {
+		t.Fatalf("DoneTranscodes = %+v", jobs)
+	}
+}

@@ -3,16 +3,20 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/rashidkpc/lessarr/internal/analysis"
+	"github.com/rashidkpc/lessarr/internal/compare"
 	"github.com/rashidkpc/lessarr/internal/queue"
 )
 
 type JobPage struct {
 	*queue.Job
-	Analysis *analysis.Result
+	Analysis      *analysis.Result
+	HasComparison bool
 }
 
 func (s *Server) jobPage(w http.ResponseWriter, r *http.Request) {
@@ -31,6 +35,9 @@ func (s *Server) jobPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := JobPage{Job: job}
+	if _, err := os.Stat(filepath.Join(compare.Dir(s.cfg.Server.DB), strconv.FormatInt(job.ID, 10), "index.html")); err == nil {
+		page.HasComparison = true
+	}
 	if data, err := s.store.Analysis(id); err == nil && data != "" {
 		var result analysis.Result
 		if json.Unmarshal([]byte(data), &result) == nil {

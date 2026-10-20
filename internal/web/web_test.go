@@ -4,24 +4,28 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/rashidkpc/lessarr/internal/compare"
 	"github.com/rashidkpc/lessarr/internal/config"
 	"github.com/rashidkpc/lessarr/internal/queue"
 )
 
 func testServer(t *testing.T) *Server {
 	t.Helper()
-	store, err := queue.Open(filepath.Join(t.TempDir(), "test.db"))
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	store, err := queue.Open(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	cfg := config.Default()
+	cfg.Server.DB = dbPath
 	cfg.Libraries = []config.Library{{Name: "Movies", Path: "/media/movies"}}
 	return New(&cfg, store, "test", nil)
 }
@@ -83,10 +87,17 @@ func TestJobPage(t *testing.T) {
 	if err := s.store.SaveAnalysis(job.ID, `{"video":{"before":1000,"after":500,"saved":500},"total":{"before":1000,"after":500,"saved":500}}`); err != nil {
 		t.Fatal(err)
 	}
+	compareDir := filepath.Join(compare.Dir(s.cfg.Server.DB), strconv.FormatInt(job.ID, 10))
+	if err := os.MkdirAll(compareDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(compareDir, "index.html"), []byte("comparison"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	w = httptest.NewRecorder()
 	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/jobs/"+strconv.FormatInt(job.ID, 10), nil))
 	body := w.Body.String()
-	for _, want := range []string{"Example.mkv", "Decision", "h264 video", "running", "Savings breakdown"} {
+	for _, want := range []string{"Example.mkv", "Decision", "h264 video", "running", "Savings breakdown", "compare original vs new"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("job page missing %q", want)
 		}

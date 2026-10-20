@@ -258,6 +258,7 @@ const jobHTML = `{{define "job"}}{{template "head"}}
 <div class="muted">
 {{if eq .StateName "pending"}}<a href="/?tab=queued">← Queued</a>{{else if eq .StateName "done"}}<a href="/?tab=done">← Done</a>{{else if eq .StateName "failed"}}<a href="/?tab=failed">← Failed</a>{{else}}<a href="/?tab=running">← Running</a>{{end}}
 &nbsp; <a href="/files?q={{urlquery .Path}}">file decisions</a>
+{{if .HasComparison}}&nbsp; <a href="/comparisons/{{.ID}}/">compare original vs new</a>{{end}}
 </div>
 
 <h2>File</h2>
