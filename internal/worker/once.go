@@ -32,6 +32,8 @@ type Options struct {
 	Progress       func(ffmpeg.Progress)
 	OnInfo         func(*probe.MediaInfo)
 	Phase          func(string)
+	ValidateStep   func(string)
+	DecodeProgress func(ffmpeg.Progress)
 	FailAfter      string // test hook; normally set by LESSARR_FAIL_AFTER
 }
 
@@ -160,7 +162,7 @@ func Once(ctx context.Context, path string, o Options) (Result, error) {
 	}
 
 	validator := validate.Validator{Prober: o.Prober, Runner: o.Runner}
-	output, err := validator.Output(ctx, temp, info, d, o.Timeout, outputFormat)
+	output, err := validator.OutputWithProgress(ctx, temp, info, d, o.Timeout, outputFormat, o.Library.Validation, o.ValidateStep, o.DecodeProgress)
 	if err != nil {
 		return result, err
 	}

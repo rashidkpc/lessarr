@@ -72,6 +72,11 @@ type Library struct {
 	ICQ    int    `toml:"icq"`
 	Preset string `toml:"preset"`
 
+	// Validation is "sample" (short decodes across the file) or "full"
+	// (decode every frame). Sampling is the default because a full decode of a
+	// feature-length title costs many minutes.
+	Validation string `toml:"validation"`
+
 	MinSavingsPercent float64 `toml:"min_savings_percent"`
 	MinRemuxBytes     int64   `toml:"min_remux_bytes"`
 	// MinDuration is the real sample filter. A byte count is a poor proxy for
@@ -187,6 +192,9 @@ func (l *Library) applyDefaults() {
 	if l.Preset == "" {
 		l.Preset = "slow"
 	}
+	if l.Validation == "" {
+		l.Validation = "sample"
+	}
 	if l.MinSavingsPercent == 0 {
 		l.MinSavingsPercent = 25
 	}
@@ -251,6 +259,11 @@ func (c *Config) Validate() error {
 		}
 		if l.ICQ < 1 || l.ICQ > 51 {
 			return fmt.Errorf("library %q: icq must be 1..51", l.Name)
+		}
+		switch l.Validation {
+		case "sample", "full":
+		default:
+			return fmt.Errorf("library %q: validation must be sample or full", l.Name)
 		}
 		if l.MinLongEdge < 0 {
 			return fmt.Errorf("library %q: min_long_edge must be >= 0", l.Name)

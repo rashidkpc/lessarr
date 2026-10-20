@@ -231,9 +231,85 @@ func (r Runner) decodes(ctx context.Context, path string, timeout time.Duration)
 
 // Decode verifies that a completed media file can be fully decoded.
 func (r Runner) Decode(ctx context.Context, path string, timeout time.Duration) error {
-	_, err := r.runTimeout(ctx, timeout, "-hide_banner", "-v", "error", "-i", path,
+	_, err := r.runTimeout(ctx, timeout, "-hide_banner", "-v", "error", "-xerror", "-i", path,
 		"-map", "0:v?", "-map", "0:a?", "-f", "null", "-")
 	return err
+}
+
+// DecodeSegment decodes a short window. It is the cheap alternative to
+// decoding an entire feature-length file.
+func (r Runner) DecodeSegment(ctx context.Context, path string, start, duration time.Duration, timeout time.Duration) error {
+	_, err := r.runTimeout(ctx, timeout, "-hide_banner", "-v", "error", "-xerror",
+		"-ss", fmt.Sprintf("%.3f", start.Seconds()),
+		"-t", fmt.Sprintf("%.3f", duration.Seconds()),
+		"-i", path, "-map", "0:v?", "-map", "0:a?", "-f", "null", "-")
+	return err
+}
+
+// ScanPackets demuxes every packet without decoding frames. It catches
+// truncation and container/packet corruption for a remux, where the video
+// bitstream is copied unchanged.
+func (r Runner) ScanPackets(ctx context.Context, path string, timeout time.Duration) error {
+	_, err := r.runTimeout(ctx, timeout, "-hide_banner", "-v", "error", "-xerror",
+		"-i", path, "-map", "0", "-c", "copy", "-f", "null", "-")
+	return err
+}
+
+// DecodeProgress is Decode with progress records. Validation uses it so a long
+// full decode is visibly moving instead of looking hung.
+func (r Runner) DecodeProgress(ctx context.Context, path string, timeout time.Duration, report func(Progress)) error {
+	if timeout <= 0 {
+		timeout = 12 * time.Hour
+	}
+	cctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(cctx, r.ffmpegBin(),
+		"-hide_banner", "-v", "error", "-xerror", "-i", path,
+		"-map", "0:v?", "-map", "0:a?",
+		"-progress", "pipe:1", "-nostats", "-f", "null", "-")
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start ffmpeg decode: %w", err)
+	}
+
+	values := map[string]string{}
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 4096), 1024*1024)
+	for scanner.Scan() {
+		key, value, ok := strings.Cut(scanner.Text(), "=")
+		if !ok {
+			continue
+		}
+		values[key] = value
+		if key == "progress" {
+			if report != nil {
+				report(progressFrom(values))
+			}
+			clear(values)
+		}
+	}
+	scanErr := scanner.Err()
+	waitErr := cmd.Wait()
+	if cctx.Err() == context.DeadlineExceeded {
+		return fmt.Errorf("ffmpeg decode timed out after %s", timeout)
+	}
+	if scanErr != nil {
+		return fmt.Errorf("read ffmpeg decode progress: %w", scanErr)
+	}
+	if waitErr != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = waitErr.Error()
+		}
+		return fmt.Errorf("ffmpeg decode: %s", lastLines(msg, 8))
+	}
+	return nil
 }
 
 // Progress is one update parsed from ffmpeg's -progress key/value stream.

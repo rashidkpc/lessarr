@@ -34,6 +34,10 @@ code { color:#b7d6a8; }
 .notice { margin:1rem 0; border-color:#4a3410; }
 .bar { height:10px; background:#222; border-radius:999px; overflow:hidden; margin:.7rem 0 .4rem; }
 .bar span { display:block; height:100%; background:#2d7a4a; }
+.steps { display:flex; flex-wrap:wrap; gap:.35rem; margin:.7rem 0 .2rem; }
+.step { padding:.12rem .45rem; border-radius:999px; background:#222; color:#777; font-size:.85rem; }
+.step.done { background:#1b3a1b; color:#9c9; }
+.step.current { background:#4a3410; color:#fff; }
 .tabs { display:flex; gap:.2rem; border-bottom:1px solid #2a2a2a; margin:1rem 0 1.2rem; }
 .tab { padding:.5rem .8rem; color:#999; border-bottom:2px solid transparent; }
 .tab.active { color:#fff; border-color:#8ab4f8; }
@@ -58,6 +62,12 @@ const dashboardHTML = `{{define "dashboard"}}
 <div class="muted">{{.Current.Action}} · {{.Current.Library}} · started {{when .Current.StartedAt}}</div>
 <div>{{.Current.Reason}}</div>
 {{if .Progress}}
+{{if .Progress.Steps}}
+<div class="steps">
+{{range .Progress.Steps}}<span class="step {{if .Done}}done{{else}}current{{end}}">{{.Label}}</span>{{end}}
+</div>
+{{end}}
+{{if gt .Progress.Frame 0}}
 <div class="bar"><span style="width:{{printf "%.1f" .Progress.Percent}}%"></span></div>
 <div class="muted">
 {{.Progress.Phase}} · {{printf "%.0f%%" .Progress.Percent}}
@@ -67,6 +77,9 @@ const dashboardHTML = `{{define "dashboard"}}
 · {{bytes .Progress.TotalSize}} written
 · updated {{when .Progress.Updated}}
 </div>
+{{else}}
+<div class="muted">{{.Progress.Phase}} · updated {{when .Progress.Updated}}</div>
+{{end}}
 {{end}}
 </div>
 {{else}}

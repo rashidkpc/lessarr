@@ -23,6 +23,12 @@ type Server struct {
 	templates *template.Template
 }
 
+type Step struct {
+	Label string
+	At    time.Time
+	Done  bool
+}
+
 // Progress is a snapshot of the currently running job's encoder progress.
 type Progress struct {
 	JobID     int64
@@ -33,6 +39,7 @@ type Progress struct {
 	Speed     string
 	TotalSize int64
 	Percent   float64
+	Steps     []Step
 	Started   time.Time
 	Updated   time.Time
 }

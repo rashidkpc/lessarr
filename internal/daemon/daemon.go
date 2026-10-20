@@ -297,6 +297,8 @@ func (d *Daemon) runJob(ctx context.Context, n int, job *queue.Job) {
 		Progress:       d.updateProgress,
 		OnInfo:         d.setProgressInfo,
 		Phase:          d.setProgressPhase,
+		ValidateStep:   d.addProgressStep,
+		DecodeProgress: d.updateProgress,
 	})
 	if err != nil {
 		if ctx.Err() != nil {
@@ -345,7 +347,8 @@ func (d *Daemon) startProgress(jobID int64) {
 	d.progressMu.Lock()
 	defer d.progressMu.Unlock()
 	now := time.Now()
-	d.progress = web.Progress{JobID: jobID, Phase: "probing", Started: now, Updated: now}
+	d.progress = web.Progress{JobID: jobID, Phase: "preparing", Started: now, Updated: now}
+	d.addProgressStepLocked("preparing")
 }
 
 func (d *Daemon) clearProgress() {
@@ -366,11 +369,38 @@ func (d *Daemon) setProgressInfo(info *probe.MediaInfo) {
 func (d *Daemon) setProgressPhase(phase string) {
 	d.progressMu.Lock()
 	defer d.progressMu.Unlock()
-	d.progress.Phase = phase
-	if phase != "encoding" {
+	if d.progress.Phase != phase {
+		d.progress.Phase = phase
+		d.progress.Frame = 0
+		d.progress.OutTime = 0
+		d.progress.Speed = ""
+		d.progress.TotalSize = 0
+		d.progress.Percent = 0
+		d.addProgressStepLocked(phase)
+	}
+	if phase == "installing" {
 		d.progress.Percent = 100
 	}
 	d.progress.Updated = time.Now()
+}
+
+func (d *Daemon) addProgressStep(label string) {
+	d.progressMu.Lock()
+	defer d.progressMu.Unlock()
+	d.addProgressStepLocked(label)
+}
+
+func (d *Daemon) addProgressStepLocked(label string) {
+	now := time.Now()
+	if n := len(d.progress.Steps); n > 0 {
+		if d.progress.Steps[n-1].Label == label {
+			d.progress.Updated = now
+			return
+		}
+		d.progress.Steps[n-1].Done = true
+	}
+	d.progress.Steps = append(d.progress.Steps, web.Step{Label: label, At: now})
+	d.progress.Updated = now
 }
 
 func (d *Daemon) updateProgress(p ffmpeg.Progress) {

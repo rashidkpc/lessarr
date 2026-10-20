@@ -472,6 +472,15 @@ func cmdOnce(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		Progress: func(progress ffmpeg.Progress) {
 			fmt.Fprintf(stderr, "\r  frame=%d time=%s speed=%s", progress.Frame, progress.OutTime.Round(time.Second), progress.Speed)
 		},
+		Phase: func(phase string) {
+			fmt.Fprintf(stderr, "\r  phase: %-16s", phase)
+		},
+		ValidateStep: func(step string) {
+			fmt.Fprintf(stderr, "\r  validate: %-24s", step)
+		},
+		DecodeProgress: func(progress ffmpeg.Progress) {
+			fmt.Fprintf(stderr, "\r  decode: frame=%d time=%s speed=%s", progress.Frame, progress.OutTime.Round(time.Second), progress.Speed)
+		},
 	})
 	fmt.Fprintln(stderr)
 	if err != nil {

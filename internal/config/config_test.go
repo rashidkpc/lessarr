@@ -208,3 +208,23 @@ min_duration = "10m"
 		t.Errorf("min_duration = %v, want 10m", got)
 	}
 }
+
+func TestValidationDefaultsToSample(t *testing.T) {
+	if got := DefaultLibrary().Validation; got != "sample" {
+		t.Fatalf("default validation = %q, want sample", got)
+	}
+	cfg, err := Load(writeTemp(t, `[encoder]
+backend = "software"
+
+[[library]]
+name = "TV"
+path = "/media/tv"
+validation = "full"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Libraries[0].Validation != "full" {
+		t.Fatalf("validation = %q, want full", cfg.Libraries[0].Validation)
+	}
+}

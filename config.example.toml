@@ -42,6 +42,7 @@ min_long_edge       = 480
 
 icq                 = 24
 preset              = "slow"
+validation          = "sample" # sample | full; full decodes every frame
 
 min_savings_percent = 25
 min_remux_bytes     = 100     # MB; remuxing is nearly free, so this bar is absolute

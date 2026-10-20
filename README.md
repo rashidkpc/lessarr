@@ -111,6 +111,11 @@ with filters for library, action, queued/running/not-queued, and path. The queue
 survives restarts; interrupted jobs return to `pending`, and withheld jobs are
 re-queued rather than discarded.
 
+Validation defaults to `sample`: five 20-second decodes across the output, plus
+a full packet scan for remuxes. Set `validation = "full"` on a library to decode
+every frame instead. The UI shows each validation step and full-decode progress
+when that mode is used.
+
 `selftest` is the first thing to run on a new machine. It does not assume the
 hardware works — it loads the driver, runs a short synthetic encode through each
 backend, decode-verifies the result, and reports the throughput. It also flags
