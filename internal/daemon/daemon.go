@@ -383,7 +383,9 @@ func (d *Daemon) backfillComparisons() {
 			continue
 		}
 		if _, err := os.Stat(filepath.Join(root, fmt.Sprintf("%d", job.ID), "index.html")); err == nil {
-			continue
+			if _, err := os.Stat(filepath.Join(root, fmt.Sprintf("%d", job.ID), "01-original.png")); err == nil {
+				continue
+			}
 		}
 		d.enqueueCompare(job.ID)
 		queued++

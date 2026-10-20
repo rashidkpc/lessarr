@@ -32,12 +32,14 @@ func Dir(dbPath string) string {
 	return filepath.Join(filepath.Dir(dbPath), "comparisons")
 }
 
-// Generate writes five split images and an index.html. It is idempotent: once
-// index.html exists, the job is skipped.
+// Generate writes five full-frame original/new pairs and an interactive wipe
+// page. It is idempotent once the first original frame exists.
 func Generate(ctx context.Context, runner ffmpeg.Runner, duration float64, task Task, root string) error {
 	outDir := filepath.Join(root, strconv.FormatInt(task.ID, 10))
 	if _, err := os.Stat(filepath.Join(outDir, "index.html")); err == nil {
-		return nil
+		if _, err := os.Stat(filepath.Join(outDir, "01-original.png")); err == nil {
+			return nil
+		}
 	}
 	if duration <= 0 {
 		return fmt.Errorf("duration is unknown")
@@ -51,25 +53,20 @@ func Generate(ctx context.Context, runner ffmpeg.Runner, duration float64, task 
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return err
 	}
-	work, err := os.MkdirTemp(outDir, ".work-")
-	if err != nil {
-		return err
+	// Older split-only galleries are replaced by full frames.
+	if old, err := filepath.Glob(filepath.Join(outDir, "*-split.png")); err == nil {
+		for _, path := range old {
+			_ = os.Remove(path)
+		}
 	}
-	defer os.RemoveAll(work)
-
-	font := findFont()
 	for i, at := range sampleTimes(duration) {
-		original := filepath.Join(work, fmt.Sprintf("%d-original.png", i))
-		replacement := filepath.Join(work, fmt.Sprintf("%d-new.png", i))
+		original := filepath.Join(outDir, fmt.Sprintf("%02d-original.png", i+1))
+		replacement := filepath.Join(outDir, fmt.Sprintf("%02d-new.png", i+1))
 		if err := extract(ctx, runner, task.Source, at, original); err != nil {
 			return fmt.Errorf("extract original at %ds: %w", int(at), err)
 		}
 		if err := extract(ctx, runner, task.Output, at, replacement); err != nil {
 			return fmt.Errorf("extract new at %ds: %w", int(at), err)
-		}
-		split := filepath.Join(outDir, fmt.Sprintf("%02d-split.png", i+1))
-		if err := compose(ctx, runner, original, replacement, split, font); err != nil {
-			return fmt.Errorf("compose split at %ds: %w", int(at), err)
 		}
 	}
 	return writeIndex(outDir, task, duration)
@@ -99,34 +96,6 @@ func extract(ctx context.Context, runner ffmpeg.Runner, path string, at float64,
 	return err
 }
 
-func compose(ctx context.Context, runner ffmpeg.Runner, original, replacement, out, font string) error {
-	left := "[0:v]crop=iw/2:ih:0:0"
-	right := "[1:v]crop=iw/2:ih:iw/2:0"
-	if font != "" {
-		left += ",drawtext=fontfile=" + font + ":text='ORIGINAL':x=18:y=18:fontsize=22:fontcolor=white:box=1:boxcolor=black@0.45:boxborderw=6"
-		right += ",drawtext=fontfile=" + font + ":text='NEW':x=18:y=18:fontsize=22:fontcolor=white:box=1:boxcolor=black@0.45:boxborderw=6"
-	}
-	graph := left + "[l];" + right + "[r];[l][r]hstack=inputs=2," +
-		"drawbox=x=iw/2-1:y=0:w=2:h=ih:color=white@0.8:t=fill"
-	_, err := runner.RunCapture(ctx, timeout,
-		"-hide_banner", "-nostdin", "-loglevel", "error", "-y",
-		"-i", original, "-i", replacement,
-		"-filter_complex", graph, "-frames:v", "1", out)
-	return err
-}
-
-func findFont() string {
-	for _, path := range []string{
-		"/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-		"/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-	} {
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
-	}
-	return ""
-}
-
 func writeIndex(dir string, task Task, duration float64) error {
 	file, err := os.Create(filepath.Join(dir, "index.html"))
 	if err != nil {
@@ -154,15 +123,43 @@ const compareHTML = `<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 body{font:15px/1.5 system-ui,sans-serif;background:#111;color:#ddd;margin:2rem auto;max-width:1200px;padding:0 1rem}
-a{color:#8ab4f8}figure{margin:0 0 2rem}img{max-width:100%;height:auto;border:1px solid #333}
-figcaption{color:#999;margin-top:.4rem}
+a{color:#8ab4f8}figure{margin:0 0 2rem}
+.compare{position:relative;line-height:0;border:1px solid #333;user-select:none}
+.compare>img{display:block;width:100%;height:auto}
+.after{position:absolute;inset:0;overflow:hidden;clip-path:inset(0 0 0 50%)}
+.after img{position:absolute;top:0;left:0;width:100%;height:auto}
+.divider{position:absolute;top:0;bottom:0;left:50%;width:2px;background:#fff;box-shadow:0 0 6px #000;pointer-events:none}
+.divider:after{content:"";position:absolute;top:50%;left:50%;width:30px;height:30px;border-radius:50%;background:#fff;transform:translate(-50%,-50%);box-shadow:0 0 8px #000}
+.compare input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:ew-resize}
+figcaption{color:#999;margin-top:.4rem;line-height:1.4}
+.legend{color:#999;margin:0 0 .6rem}
 </style></head><body>
 <h1>Job {{.Task.ID}} comparison</h1>
-<p><a href="/jobs/{{.Task.ID}}">← job details</a> · left = original, right = new · duration {{printf "%.1f" .Duration}}s</p>
+<p><a href="/jobs/{{.Task.ID}}">← job details</a> · duration {{printf "%.1f" .Duration}}s</p>
+<p class="legend">Drag the white bar: left reveals the original, right reveals the new file.</p>
 {{range .Samples}}
 <figure>
-<img src="{{printf "%02d" .Index}}-split.png" alt="split comparison">
-<figcaption>{{printf "%02d" .Index}} · {{printf "%.0f" .At}}s · left original / right new</figcaption>
+<div class="compare">
+<img src="{{printf "%02d" .Index}}-original.png" alt="original">
+<div class="after"><img src="{{printf "%02d" .Index}}-new.png" alt="new"></div>
+<div class="divider"></div>
+<input type="range" min="0" max="100" value="50" aria-label="Reveal original or new">
+</div>
+<figcaption>{{printf "%02d" .Index}} · {{printf "%.0f" .At}}s · drag to compare</figcaption>
 </figure>
 {{end}}
+<script>
+document.querySelectorAll(".compare").forEach(function (el) {
+  var range = el.querySelector("input");
+  var after = el.querySelector(".after");
+  var divider = el.querySelector(".divider");
+  function update() {
+    var v = Number(range.value);
+    after.style.clipPath = "inset(0 0 0 " + v + "%)";
+    divider.style.left = v + "%";
+  }
+  range.addEventListener("input", update);
+  update();
+});
+</script>
 </body></html>`
