@@ -198,6 +198,12 @@ type Status struct {
 	TrashFiles    int
 	TrashBytes    int64
 	TrashLimitGB  int64
+	Saved24h      int64
+	Done24h       int
+	Saved7d       int64
+	Done7d        int
+	SavedTotal    int64
+	DoneTotal     int
 }
 
 func (s *Server) collect() (Status, error) {
@@ -225,7 +231,26 @@ func (s *Server) collect() (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
+	for i := range done {
+		done[i].Retryable = s.retryable(&done[i])
+	}
+	for i := range failed {
+		failed[i].Retryable = s.retryable(&failed[i])
+	}
 	trashStats, err := trash.Summary(s.store)
+	if err != nil {
+		return Status{}, err
+	}
+	now := time.Now()
+	saved24h, done24h, err := s.store.SavedSince(now.Add(-24 * time.Hour))
+	if err != nil {
+		return Status{}, err
+	}
+	saved7d, done7d, err := s.store.SavedSince(now.Add(-7 * 24 * time.Hour))
+	if err != nil {
+		return Status{}, err
+	}
+	savedTotal, doneTotal, err := s.store.SavedSince(time.Time{})
 	if err != nil {
 		return Status{}, err
 	}
@@ -246,6 +271,8 @@ func (s *Server) collect() (Status, error) {
 		Version: s.version, Paused: paused, Counts: counts,
 		Current: current, Progress: progress, Queued: queued, Done: done, Failed: failed,
 		TrashFiles: trashStats.Files, TrashBytes: trashStats.Bytes, TrashLimitGB: s.cfg.Trash.MaxSizeGB,
+		Saved24h: saved24h, Done24h: done24h, Saved7d: saved7d, Done7d: done7d,
+		SavedTotal: savedTotal, DoneTotal: doneTotal,
 	}
 	for _, l := range s.cfg.Libraries {
 		if l.Write {

@@ -379,20 +379,6 @@ func (d *Daemon) Retry(jobID int64) error {
 	if job == nil {
 		return fmt.Errorf("job %d not found", jobID)
 	}
-	if job.Backup == "" {
-		return fmt.Errorf("original is no longer available")
-	}
-	backup := filepath.Clean(job.Backup)
-	if filepath.Base(filepath.Dir(backup)) != ".lessarr-trash" {
-		return fmt.Errorf("refusing to restore non-trash path")
-	}
-	fi, err := os.Lstat(backup)
-	if err != nil {
-		return fmt.Errorf("original is unavailable: %w", err)
-	}
-	if !fi.Mode().IsRegular() || fi.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("original is not a regular file")
-	}
 	lib, ok := d.cfg.LibraryFor(job.Path)
 	if !ok {
 		return fmt.Errorf("file is outside configured libraries")
@@ -407,26 +393,56 @@ func (d *Daemon) Retry(jobID int64) error {
 	if active {
 		return fmt.Errorf("file already has an active job")
 	}
-	if out, err := os.Lstat(job.Path); err == nil {
-		if !out.Mode().IsRegular() || out.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("current output is not a regular file")
+
+	restore := false
+	source := ""
+	if job.Backup != "" {
+		backup := filepath.Clean(job.Backup)
+		if filepath.Base(filepath.Dir(backup)) != ".lessarr-trash" {
+			return fmt.Errorf("refusing to restore non-trash path")
 		}
-	} else if !os.IsNotExist(err) {
-		return err
+		if fi, err := os.Lstat(backup); err == nil && fi.Mode().IsRegular() && fi.Mode()&os.ModeSymlink == 0 {
+			restore = true
+			source = backup
+		}
+	}
+	if !restore {
+		if job.State != queue.Failed {
+			return fmt.Errorf("original is no longer available")
+		}
+		fi, err := os.Lstat(job.Path)
+		if err != nil {
+			return fmt.Errorf("original is unavailable: %w", err)
+		}
+		if !fi.Mode().IsRegular() || fi.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("original is not a regular file")
+		}
+		source = job.Path
+	}
+	if restore {
+		if out, err := os.Lstat(job.Path); err == nil {
+			if !out.Mode().IsRegular() || out.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("current output is not a regular file")
+			}
+		} else if !os.IsNotExist(err) {
+			return err
+		}
 	}
 	probeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	info, err := d.prober.Probe(probeCtx, backup)
+	info, err := d.prober.Probe(probeCtx, source)
 	if err != nil {
 		return fmt.Errorf("probe original: %w", err)
 	}
-	if err := os.Rename(backup, job.Path); err != nil {
-		return fmt.Errorf("restore original: %w", err)
+	if restore {
+		if err := os.Rename(source, job.Path); err != nil {
+			return fmt.Errorf("restore original: %w", err)
+		}
+		if err := d.store.ClearBackup(job.ID); err != nil {
+			fmt.Fprintf(d.log, "retry %d: clear backup: %v\n", job.ID, err)
+		}
 	}
-	if err := d.store.ClearBackup(job.ID); err != nil {
-		fmt.Fprintf(d.log, "retry %d: clear backup: %v\n", job.ID, err)
-	}
-	added, err := d.store.Enqueue(queue.Job{
+	added, err := d.store.EnqueueRetry(queue.Job{
 		Path: job.Path, Library: lib.Name, Action: string(decision.Transcode),
 		Codec: info.Video.Codec, Reason: "retry requested from retained original",
 		SizeBefore: info.Size,

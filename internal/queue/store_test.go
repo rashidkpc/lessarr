@@ -271,3 +271,92 @@ func TestDoneTranscodes(t *testing.T) {
 		t.Fatalf("DoneTranscodes = %+v", jobs)
 	}
 }
+
+func TestSavedSince(t *testing.T) {
+	s := openTest(t)
+	if _, err := s.Enqueue(Job{Path: "/media/a.mkv", Library: "TV", Action: "transcode", SizeBefore: 1000}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.Claim(time.Now())
+	if err != nil || job == nil {
+		t.Fatal(err)
+	}
+	if err := s.Complete(job.ID, Done, 400, "/media/.lessarr-trash/a"); err != nil {
+		t.Fatal(err)
+	}
+	saved, n, err := s.SavedSince(time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved != 600 || n != 1 {
+		t.Fatalf("SavedSince = %d, %d", saved, n)
+	}
+	if saved, n, err := s.SavedSince(time.Now().Add(time.Hour)); err != nil || saved != 0 || n != 0 {
+		t.Fatalf("future cutoff = %d, %d, %v", saved, n, err)
+	}
+}
+
+func TestSavedSinceUsesNewestPerPath(t *testing.T) {
+	s := openTest(t)
+	path := "/media/a.mkv"
+	if _, err := s.Enqueue(Job{Path: path, Library: "TV", Action: "transcode", SizeBefore: 1000}); err != nil {
+		t.Fatal(err)
+	}
+	job, _ := s.Claim(time.Now())
+	if err := s.Complete(job.ID, Done, 400, "/media/.lessarr-trash/a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Enqueue(Job{Path: path, Library: "TV", Action: "transcode", SizeBefore: 400}); err != nil {
+		t.Fatal(err)
+	}
+	job2, _ := s.Claim(time.Now())
+	if err := s.Complete(job2.ID, Done, 300, "/media/.lessarr-trash/b"); err != nil {
+		t.Fatal(err)
+	}
+	saved, n, err := s.SavedSince(time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved != 100 || n != 1 {
+		t.Fatalf("SavedSince = %d, %d; want 100, 1", saved, n)
+	}
+}
+
+func TestEnqueueRetryBypassesFailureCooldown(t *testing.T) {
+	s := openTest(t)
+	j := Job{Path: "/media/retry.mkv", Library: "TV", Action: "transcode", SizeBefore: 100}
+	if _, err := s.Enqueue(j); err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.Claim(time.Now())
+	if err != nil || job == nil {
+		t.Fatal(err)
+	}
+	if err := s.Fail(job.ID, 1, 1, "boom", 0); err != nil {
+		t.Fatal(err)
+	}
+	if added, err := s.Enqueue(j); err != nil || added {
+		t.Fatalf("normal Enqueue = %v, %v; want false", added, err)
+	}
+	if added, err := s.EnqueueRetry(j); err != nil || !added {
+		t.Fatalf("EnqueueRetry = %v, %v; want true", added, err)
+	}
+}
+
+func TestSavedSinceDoesNotGoNegative(t *testing.T) {
+	s := openTest(t)
+	if _, err := s.Enqueue(Job{Path: "/media/big.mkv", Library: "TV", Action: "remux", SizeBefore: 1000}); err != nil {
+		t.Fatal(err)
+	}
+	job, _ := s.Claim(time.Now())
+	if err := s.Complete(job.ID, Done, 1200, "/media/.lessarr-trash/big"); err != nil {
+		t.Fatal(err)
+	}
+	saved, n, err := s.SavedSince(time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved != 0 || n != 1 {
+		t.Fatalf("SavedSince = %d, %d; want 0, 1", saved, n)
+	}
+}

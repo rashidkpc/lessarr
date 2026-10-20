@@ -122,17 +122,19 @@ const compareHTML = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>lessarr comparison</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-body{font:15px/1.5 system-ui,sans-serif;background:#111;color:#ddd;margin:2rem auto;max-width:1200px;padding:0 1rem}
-a{color:#8ab4f8}figure{margin:0 0 2rem}
-.compare{position:relative;line-height:0;border:1px solid #333;user-select:none}
+body{font:15px/1.5 ui-sans-serif,system-ui,sans-serif;background:#f4f6f9;color:#1e293b;margin:2rem auto;max-width:1200px;padding:0 1rem 3rem}
+a{color:#2563eb;text-decoration:none}a:hover{text-decoration:underline}
+h1{font-size:1.35rem;margin:0 0 .3rem}
+figure{margin:0 0 2rem}
+.compare{position:relative;line-height:0;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;background:#fff;user-select:none;box-shadow:0 1px 2px rgba(15,23,42,.05)}
 .compare>img{display:block;width:100%;height:auto}
 .after{position:absolute;inset:0;overflow:hidden;clip-path:inset(0 0 0 50%)}
 .after img{position:absolute;top:0;left:0;width:100%;height:auto}
-.divider{position:absolute;top:0;bottom:0;left:50%;width:2px;background:#fff;box-shadow:0 0 6px #000;pointer-events:none}
-.divider:after{content:"";position:absolute;top:50%;left:50%;width:30px;height:30px;border-radius:50%;background:#fff;transform:translate(-50%,-50%);box-shadow:0 0 8px #000}
+.divider{position:absolute;top:0;bottom:0;left:50%;width:2px;background:#fff;box-shadow:0 0 6px rgba(15,23,42,.8);pointer-events:none}
+.divider:after{content:"";position:absolute;top:50%;left:50%;width:30px;height:30px;border-radius:50%;background:#fff;border:2px solid #2563eb;transform:translate(-50%,-50%);box-shadow:0 1px 6px rgba(15,23,42,.35)}
 .compare input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:ew-resize}
-figcaption{color:#999;margin-top:.4rem;line-height:1.4}
-.legend{color:#999;margin:0 0 .6rem}
+figcaption{color:#64748b;margin-top:.4rem;line-height:1.4}
+.legend{color:#64748b;margin:0 0 .8rem}
 </style></head><body>
 <h1>Job {{.Task.ID}} comparison</h1>
 <p><a href="/jobs/{{.Task.ID}}">← job details</a> · duration {{printf "%.1f" .Duration}}s</p>

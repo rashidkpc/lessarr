@@ -4,66 +4,108 @@ const sharedHTML = `{{define "head"}}<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>lessarr</title>
 <style>
-:root { color-scheme: dark; }
-body { font: 15px/1.45 system-ui, sans-serif; margin: 2rem auto; max-width: 1250px; padding: 0 1rem; background:#111; color:#ddd; }
-h1 { font-size: 1.4rem; margin: 0 0 .25rem; }
-h2 { font-size: 1rem; margin: 2rem 0 .5rem; color:#aaa; text-transform: uppercase; letter-spacing:.06em; }
-a { color:#8ab4f8; text-decoration:none; }
+:root {
+  color-scheme: light;
+  --bg:#f4f6f9; --surface:#fff; --border:#e2e8f0; --text:#1e293b; --muted:#64748b;
+  --accent:#2563eb; --accent-soft:#dbeafe;
+  --ok:#166534; --ok-bg:#dcfce7; --warn:#92400e; --warn-bg:#fef3c7; --err:#991b1b; --err-bg:#fee2e2;
+}
+* { box-sizing:border-box; }
+body { font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); margin:0; padding:2rem 1.25rem 4rem; }
+.wrap { max-width:1200px; margin:0 auto; }
+.top { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.6rem; }
+.brand { font-size:1.4rem; font-weight:700; letter-spacing:-.02em; }
+.brand span { font-size:.8rem; color:var(--muted); font-weight:400; margin-left:.4rem; }
+nav { display:flex; gap:.2rem; background:#e8edf4; padding:.25rem; border-radius:10px; }
+nav a { padding:.35rem .75rem; border-radius:7px; color:#475569; font-weight:500; }
+nav a:hover { background:#fff; color:var(--text); text-decoration:none; }
+a { color:var(--accent); text-decoration:none; }
 a:hover { text-decoration:underline; }
-nav { margin:.8rem 0 1.2rem; padding-bottom:.6rem; border-bottom:1px solid #2a2a2a; }
-nav a { margin-right:1rem; }
-table { width:100%; border-collapse: collapse; }
-th, td { text-align:left; padding:.4rem .5rem; border-bottom:1px solid #2a2a2a; vertical-align: top; }
-th { color:#888; font-weight:500; }
-.muted { color:#888; }
-.badge { display:inline-block; padding:.1rem .45rem; border-radius:4px; background:#263238; margin-right:.3rem; }
-.ok { background:#1b3a1b; }
-.warn { background:#4a3410; }
-.err { background:#4a1b1b; }
-.grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:.6rem; }
-.card { background:#1a1a1a; border:1px solid #2a2a2a; border-radius:6px; padding:.7rem; }
-.card b { display:block; font-size:1.35rem; }
-button { background:#2d4a7a; color:#fff; border:0; border-radius:4px; padding:.45rem .8rem; cursor:pointer; }
-input[type=search] { background:#1a1a1a; color:#ddd; border:1px solid #333; border-radius:4px; padding:.4rem .6rem; min-width:320px; }
-code { color:#b7d6a8; }
-.chips { margin:.6rem 0; }
-.chip { display:inline-block; padding:.2rem .55rem; border:1px solid #333; border-radius:999px; margin:0 .35rem .35rem 0; color:#bbb; }
-.chip.active { background:#2d4a7a; color:#fff; border-color:#2d4a7a; }
-.notice { margin:1rem 0; border-color:#4a3410; }
-.bar { height:10px; background:#222; border-radius:999px; overflow:hidden; margin:.7rem 0 .4rem; }
-.bar span { display:block; height:100%; background:#2d7a4a; }
-.stage { font-size:1.05rem; margin:.7rem 0 .2rem; color:#eee; }
+h1 { font-size:1.35rem; margin:0 0 .3rem; }
+h2 { font-size:.78rem; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin:2rem 0 .6rem; }
+.muted { color:var(--muted); }
+.panel { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:.8rem; margin:1rem 0 1.4rem; }
+.stat { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:.9rem 1rem; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+.stat .label { font-size:.76rem; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; font-weight:600; }
+.stat .value { font-size:1.5rem; font-weight:700; margin-top:.25rem; }
+.stat .sub { font-size:.82rem; color:var(--muted); margin-top:.1rem; }
+.tabs { display:flex; gap:.2rem; background:#e8edf4; padding:.25rem; border-radius:10px; margin:0 0 1rem; width:max-content; max-width:100%; overflow-x:auto; }
+.tab { padding:.42rem .8rem; border-radius:7px; color:#64748b; font-weight:500; white-space:nowrap; }
+.tab:hover { color:var(--text); text-decoration:none; }
+.tab.active { background:#fff; color:var(--text); box-shadow:0 1px 2px rgba(15,23,42,.1); }
+.tab .count { color:#94a3b8; margin-left:.3rem; font-weight:400; }
+.tab.active .count { color:var(--muted); }
+.table-wrap { background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+table { width:100%; border-collapse:collapse; }
+th, td { text-align:left; padding:.65rem .8rem; border-bottom:1px solid var(--border); vertical-align:top; }
+th { font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; color:#94a3b8; background:#f8fafc; font-weight:600; }
+tr:last-child td { border-bottom:0; }
+tbody tr:hover td { background:#f8fafc; }
+.badge { display:inline-block; padding:.12rem .5rem; border-radius:999px; background:#eef2f7; color:#475569; font-size:.8rem; font-weight:500; margin-right:.3rem; }
+.ok { background:var(--ok-bg); color:var(--ok); }
+.warn { background:var(--warn-bg); color:var(--warn); }
+.err { background:var(--err-bg); color:var(--err); }
+button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:.45rem .85rem; font:inherit; font-weight:500; cursor:pointer; }
+button:hover { background:#1d4ed8; }
+button.secondary { background:#fff; color:var(--accent); border:1px solid #bfdbfe; }
+button.secondary:hover { background:var(--accent-soft); }
+button.small { padding:.22rem .55rem; font-size:.8rem; border-radius:6px; }
+input[type=search] { background:#fff; color:var(--text); border:1px solid var(--border); border-radius:8px; padding:.45rem .7rem; min-width:min(360px,100%); }
+code { background:#f1f5f9; color:#0f172a; border-radius:4px; padding:.08rem .3rem; font-size:.9em; word-break:break-word; }
+.path { word-break:break-all; }
+.chips { margin:.55rem 0; }
+.chip { display:inline-block; padding:.2rem .6rem; border:1px solid var(--border); border-radius:999px; margin:0 .35rem .35rem 0; color:#475569; background:#fff; font-size:.85rem; }
+.chip:hover { text-decoration:none; border-color:#94a3b8; }
+.chip.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+.notice { margin:1rem 0; border-color:#fde68a; background:#fffbeb; color:#92400e; }
+.paused { background:var(--warn-bg); color:var(--warn); border:1px solid #fde68a; border-radius:8px; padding:.5rem .7rem; margin-bottom:1rem; font-size:.9rem; }
+.bar { height:10px; background:#e2e8f0; border-radius:999px; overflow:hidden; margin:.7rem 0 .4rem; }
+.bar span { display:block; height:100%; background:linear-gradient(90deg,#60a5fa,#2563eb); border-radius:999px; }
+.stage { font-size:1rem; font-weight:600; margin:.7rem 0 .25rem; }
 .stages { margin-top:.6rem; }
-.stages summary { cursor:pointer; color:#8ab4f8; }
-.subbar { height:6px; width:min(360px,100%); background:#222; border-radius:999px; overflow:hidden; margin:.6rem 0 .2rem; }
-.subbar span { display:block; height:100%; background:#2d4a7a; }
+.stages summary { cursor:pointer; color:var(--accent); font-size:.88rem; }
+.subbar { height:6px; width:min(360px,100%); background:#e2e8f0; border-radius:999px; overflow:hidden; margin:.6rem 0 .2rem; }
+.subbar span { display:block; height:100%; background:#93c5fd; border-radius:999px; }
 .steps { display:flex; flex-wrap:wrap; gap:.35rem; margin:.7rem 0 .2rem; }
-.step { padding:.12rem .45rem; border-radius:999px; background:#222; color:#777; font-size:.85rem; }
-.step.done { background:#1b3a1b; color:#9c9; }
-.step.current { background:#4a3410; color:#fff; }
-.tabs { display:flex; gap:.2rem; border-bottom:1px solid #2a2a2a; margin:1rem 0 1.2rem; }
-.tab { padding:.5rem .8rem; color:#999; border-bottom:2px solid transparent; }
-.tab.active { color:#fff; border-color:#8ab4f8; }
-.tab .count { color:#777; margin-left:.2rem; }
-.tab.active .count { color:#bbb; }
+.step { padding:.12rem .5rem; border-radius:999px; background:#f1f5f9; color:#64748b; font-size:.82rem; }
+.step.done { background:var(--ok-bg); color:var(--ok); }
+.step.current { background:var(--accent-soft); color:#1e40af; }
+.toolbar { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; margin-bottom:.4rem; }
+@media (max-width:640px) {
+  body { padding:1.25rem .75rem 3rem; }
+  .top { flex-wrap:wrap; }
+  th, td { padding:.5rem .55rem; }
+  .toolbar { flex-direction:column; }
+}
 </style>
 </head>
-<body>{{end}}
+<body><div class="wrap">
+<div class="top">
+  <div class="brand">lessarr <span>v{{.Version}}</span></div>
+  {{template "nav"}}
+</div>{{end}}
 {{define "nav"}}<nav><a href="/">Dashboard</a><a href="/files">Files</a></nav>{{end}}`
 
 const dashboardHTML = `{{define "dashboard"}}
-<div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:.8rem">
-<div class="muted">
-{{if .Paused}}<span class="badge warn">paused</span>{{else}}<span class="badge ok">running</span>{{end}}
-{{if .WritesEnabled}}<span class="badge ok">writes enabled</span>{{else}}<span class="badge">observe only</span>{{end}}
-&nbsp; trash {{bytes .TrashBytes}}{{if gt .TrashLimitGB 0}} / {{.TrashLimitGB}} GB{{end}} ({{.TrashFiles}})
-</div>
+<div class="toolbar">
+<div><h1>Dashboard</h1><div class="muted">Encoding activity and recent savings</div></div>
 <form method="post" action="{{if .Paused}}/api/resume{{else}}/api/pause{{end}}">
-<button type="submit" title="{{if .Paused}}Resume claiming jobs{{else}}Finish the current job, then stop claiming new jobs{{end}}">{{if .Paused}}Resume{{else}}Pause{{end}}</button>
+<button class="secondary" type="submit" title="{{if .Paused}}Resume claiming jobs{{else}}Finish the current job, then stop claiming new jobs{{end}}">{{if .Paused}}Resume{{else}}Pause{{end}}</button>
 </form>
 </div>
+{{if .Paused}}<div class="paused">Paused. The current job will finish; new jobs will not be claimed until resumed.</div>{{end}}
+
+<div class="stats">
+<div class="stat"><div class="label">Reclaimed · 24h</div><div class="value">{{bytes .Saved24h}}</div><div class="sub">{{.Done24h}} job(s)</div></div>
+<div class="stat"><div class="label">Reclaimed · 7d</div><div class="value">{{bytes .Saved7d}}</div><div class="sub">{{.Done7d}} job(s)</div></div>
+<div class="stat"><div class="label">Total reclaimed</div><div class="value">{{bytes .SavedTotal}}</div><div class="sub">{{.DoneTotal}} file(s)</div></div>
+<div class="stat"><div class="label">Trash</div><div class="value">{{bytes .TrashBytes}}</div><div class="sub">{{.TrashFiles}} file(s){{if gt .TrashLimitGB 0}} · cap {{.TrashLimitGB}} GB{{end}}</div></div>
+</div>
+
 <div class="tabs">
 {{range .Tabs}}
 <a class="tab {{if .Active}}active{{end}}" href="{{.Href}}">{{.Label}} <span class="count">{{.Count}}</span></a>
@@ -72,21 +114,16 @@ const dashboardHTML = `{{define "dashboard"}}
 
 {{if eq .Tab "running"}}
 {{if .Current}}
-<div class="card">
-<div><code>{{.Current.Path}}</code></div>
+<div class="panel">
+<div class="path"><a href="/jobs/{{.Current.ID}}"><code>{{.Current.Path}}</code></a></div>
 <div class="muted">{{.Current.Action}} · {{.Current.Library}} · started {{when .Current.StartedAt}}</div>
-<div>{{.Current.Reason}}</div>
+<div style="margin-top:.45rem">{{.Current.Reason}}</div>
 {{if .Progress}}
 <div class="stage">{{if .Progress.Stage}}{{.Progress.Stage}}{{else}}{{.Progress.Phase}}{{end}}</div>
 {{if gt .Progress.Frame 0}}
 <div class="bar"><span style="width:{{printf "%.1f" .Progress.Percent}}%"></span></div>
 <div class="muted">
-{{printf "%.0f%%" .Progress.Percent}}
-· {{.Progress.Frame}} frames
-· {{dur .Progress.OutTime}} / {{dur .Progress.Duration}}
-{{if .Progress.Speed}} · speed {{.Progress.Speed}}{{end}}
-· {{bytes .Progress.TotalSize}} written
-· updated {{when .Progress.Updated}}
+{{printf "%.0f%%" .Progress.Percent}} · {{.Progress.Frame}} frames · {{dur .Progress.OutTime}} / {{dur .Progress.Duration}}{{if .Progress.Speed}} · speed {{.Progress.Speed}}{{end}} · {{bytes .Progress.TotalSize}} written · updated {{when .Progress.Updated}}
 </div>
 {{end}}
 {{if .Progress.Steps}}
@@ -104,67 +141,69 @@ const dashboardHTML = `{{define "dashboard"}}
 {{end}}
 </div>
 {{else}}
-<div class="card muted">Nothing is running.</div>
+<div class="panel muted">Nothing is running.</div>
 {{end}}
 
 {{else if eq .Tab "queued"}}
-<table>
-<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th>Size</th></tr>
+<div class="table-wrap"><table>
+<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th>Size</th><th>Queued</th></tr>
 {{range .Queued}}
 <tr>
 <td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
-<td><a href="/jobs/{{.ID}}"><code>{{.Path}}</code></a></td>
+<td class="path"><a href="/jobs/{{.ID}}"><code>{{.Path}}</code></a></td>
 <td>{{.Library}}</td>
 <td><span class="badge">{{.Action}}</span></td>
 <td>{{bytes .SizeBefore}}</td>
+<td class="muted">{{when .CreatedAt}}</td>
 </tr>
 {{else}}
-<tr><td colspan="5" class="muted">Queue is empty.</td></tr>
+<tr><td colspan="6" class="muted">Queue is empty.</td></tr>
 {{end}}
-</table>
+</table></div>
 {{if gt .Counts.Pending (len .Queued)}}<div class="muted" style="margin-top:.8rem"><a href="/files?queue=pending">View all queued files</a></div>{{end}}
 
 {{else if eq .Tab "done"}}
-<table>
-<tr><th>#</th><th>File</th><th>Action</th><th>Size</th><th>When</th></tr>
+<div class="table-wrap"><table>
+<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th>Result</th><th>When</th><th></th></tr>
 {{range .Done}}
 <tr>
 <td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
-<td><a href="/jobs/{{.ID}}"><code>{{.Path}}</code></a></td>
-<td>{{.Action}}</td>
+<td class="path"><a href="/jobs/{{.ID}}"><code>{{.Path}}</code></a></td>
+<td>{{.Library}}</td>
+<td><span class="badge">{{.Action}}</span></td>
 <td>{{bytes .SizeBefore}}{{if gt .SizeAfter 0}} → {{bytes .SizeAfter}} <span class="muted">({{saved .SizeBefore .SizeAfter}})</span>{{end}}</td>
 <td class="muted">{{when .FinishedAt}}</td>
+<td>{{if .Retryable}}<form method="post" action="/api/jobs/{{.ID}}/retry" onsubmit="return confirm('Restore the original and re-transcode with current settings?')"><button class="secondary small" type="submit">Retry</button></form>{{end}}</td>
 </tr>
 {{else}}
-<tr><td colspan="5" class="muted">Nothing completed yet.</td></tr>
+<tr><td colspan="7" class="muted">Nothing completed yet.</td></tr>
 {{end}}
-</table>
+</table></div>
 
 {{else if eq .Tab "failed"}}
-<table>
-<tr><th>#</th><th>File</th><th>Error</th><th>When</th></tr>
+<div class="table-wrap"><table>
+<tr><th>#</th><th>File</th><th>Library</th><th>Error</th><th>When</th><th></th></tr>
 {{range .Failed}}
 <tr>
 <td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
-<td><a href="/jobs/{{.ID}}"><code>{{.Path}}</code></a></td>
+<td class="path"><a href="/jobs/{{.ID}}"><code>{{.Path}}</code></a></td>
+<td>{{.Library}}</td>
 <td><span class="err">{{.Error}}</span></td>
 <td class="muted">{{when .UpdatedAt}}</td>
+<td>{{if .Retryable}}<form method="post" action="/api/jobs/{{.ID}}/retry" onsubmit="return confirm('Retry this job with current settings?')"><button class="secondary small" type="submit">Retry</button></form>{{end}}</td>
 </tr>
 {{else}}
-<tr><td colspan="4" class="muted">No failures.</td></tr>
+<tr><td colspan="6" class="muted">No failures.</td></tr>
 {{end}}
-</table>
+</table></div>
 {{end}}
 {{end}}`
 
 const pageHTML = `{{define "page"}}{{template "head"}}
-<h1>lessarr <span class="muted">v{{.Version}}</span></h1>
-{{template "nav"}}
-
 <div id="live" data-tab="{{.Tab}}">
 {{template "dashboard" .}}
 </div>
-
+</div>
 <script>
 (function () {
   var live = document.getElementById("live");
@@ -193,24 +232,12 @@ const pageHTML = `{{define "page"}}{{template "head"}}
   setTimeout(refresh, 2000);
 })();
 </script>
-{{end}}`
+</body></html>{{end}}`
 
 const filesHTML = `{{define "files"}}{{template "head"}}
-<h1>Files <span class="muted">v{{.Version}}</span></h1>
-{{template "nav"}}
-<div class="muted">
-{{if .Paused}}<span class="badge warn">paused</span>{{else}}<span class="badge ok">running</span>{{end}}
-&nbsp; {{.Total}} file(s) match
-&nbsp; {{.Counts.Pending}} queued
-{{if .WritesEnabled}}<span class="badge ok">writes enabled</span>{{else}}<span class="badge warn">observe only</span>{{end}}
+<div class="toolbar">
+<div><h1>Files</h1><div class="muted">{{.Total}} file(s) match · {{.Counts.Pending}} queued</div></div>
 </div>
-
-{{if and (gt .Counts.Pending 0) (not .WritesEnabled)}}
-<div class="card notice">
-<strong>{{.Counts.Pending}} candidate job(s) are queued.</strong>
-No library has <code>write = true</code>, so the worker will not claim them yet.
-</div>
-{{end}}
 
 <div class="chips"><span class="muted">Queue: </span>
 {{range .QueueLinks}}<a class="chip {{if .Active}}active{{end}}" href="{{.Href}}">{{.Label}}</a>{{end}}
@@ -230,12 +257,12 @@ No library has <code>write = true</code>, so the worker will not claim them yet.
 <button type="submit">Search</button>
 </form>
 
-<table>
+<div class="table-wrap"><table>
 <tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th>Size</th><th>Queue</th><th>Decision</th><th>Checked</th></tr>
 {{range .Rows}}
 <tr>
 <td>{{if .JobID}}<a href="/jobs/{{.JobID}}">{{.JobID}}</a>{{else}}—{{end}}</td>
-<td><code>{{.Path}}</code></td>
+<td class="path"><code>{{.Path}}</code></td>
 <td>{{.Library}}</td>
 <td><span class="badge">{{.Action}}</span></td>
 <td>{{bytes .Size}}</td>
@@ -246,20 +273,18 @@ No library has <code>write = true</code>, so the worker will not claim them yet.
 {{else}}
 <tr><td colspan="8" class="muted">No files match this filter.</td></tr>
 {{end}}
-</table>
+</table></div>
 
 <div class="muted" style="margin-top:1rem">
 Showing {{.Start}}–{{.End}} of {{.Total}}
 {{if .PrevHref}} · <a href="{{.PrevHref}}">Previous</a>{{end}}
 {{if .NextHref}} · <a href="{{.NextHref}}">Next</a>{{end}}
 </div>
-{{end}}`
+</div>
+</body></html>{{end}}`
 
 const jobHTML = `{{define "job"}}{{template "head"}}
-<h1>Job #{{.ID}}
-<span class="badge {{if eq .StateName "done"}}ok{{else if eq .StateName "failed"}}err{{else if eq .StateName "running"}}warn{{end}}">{{.StateName}}</span>
-</h1>
-{{template "nav"}}
+<h1>Job #{{.ID}} <span class="badge {{if eq .StateName "done"}}ok{{else if eq .StateName "failed"}}err{{else if eq .StateName "running"}}warn{{end}}">{{.StateName}}</span></h1>
 <div class="muted">
 {{if eq .StateName "pending"}}<a href="/?tab=queued">← Queued</a>{{else if eq .StateName "done"}}<a href="/?tab=done">← Done</a>{{else if eq .StateName "failed"}}<a href="/?tab=failed">← Failed</a>{{else}}<a href="/?tab=running">← Running</a>{{end}}
 &nbsp; <a href="/files?q={{urlquery .Path}}">file decisions</a>
@@ -272,39 +297,39 @@ const jobHTML = `{{define "job"}}{{template "head"}}
 {{end}}
 
 <h2>File</h2>
-<div class="card">
-<div style="word-break:break-all"><code>{{.Path}}</code></div>
+<div class="panel">
+<div class="path"><code>{{.Path}}</code></div>
 <div class="muted">{{.Library}} · {{.Action}} · {{.Codec}}</div>
 </div>
 
 <h2>Result</h2>
-<table>
+<div class="table-wrap"><table>
 <tr><th>Size</th><td>{{bytes .SizeBefore}}{{if and (eq .StateName "done") (gt .SizeAfter 0)}} → {{bytes .SizeAfter}} <span class="muted">({{saved .SizeBefore .SizeAfter}} smaller)</span>{{end}}</td></tr>
 <tr><th>Attempts</th><td>{{.Attempts}}</td></tr>
 <tr><th>Created</th><td>{{.CreatedAt.Format "2006-01-02 15:04:05"}} <span class="muted">({{when .CreatedAt}})</span></td></tr>
 {{if not .StartedAt.IsZero}}<tr><th>Started</th><td>{{.StartedAt.Format "2006-01-02 15:04:05"}}</td></tr>{{end}}
 {{if not .FinishedAt.IsZero}}<tr><th>Finished</th><td>{{.FinishedAt.Format "2006-01-02 15:04:05"}} <span class="muted">({{when .FinishedAt}})</span></td></tr>{{end}}
-{{if .Backup}}<tr><th>Original</th><td style="word-break:break-all"><code>{{.Backup}}</code></td></tr>{{end}}
-</table>
+{{if .Backup}}<tr><th>Original</th><td class="path"><code>{{.Backup}}</code></td></tr>{{end}}
+</table></div>
 
 {{if .Analysis}}
 <h2>Savings breakdown</h2>
-<table>
+<div class="table-wrap"><table>
 <tr><th>Part</th><th>Before</th><th>After</th><th>Saved</th></tr>
 <tr><td>Video</td><td>{{bytes .Analysis.Video.Before}}</td><td>{{bytes .Analysis.Video.After}}</td><td>{{sbytes .Analysis.Video.Saved}}</td></tr>
 <tr><td>Audio</td><td>{{bytes .Analysis.Audio.Before}}</td><td>{{bytes .Analysis.Audio.After}}</td><td>{{sbytes .Analysis.Audio.Saved}}</td></tr>
 <tr><td>Subtitles</td><td>{{bytes .Analysis.Subtitles.Before}}</td><td>{{bytes .Analysis.Subtitles.After}}</td><td>{{sbytes .Analysis.Subtitles.Saved}}</td></tr>
 <tr><td>Container / other</td><td>{{bytes .Analysis.Other.Before}}</td><td>{{bytes .Analysis.Other.After}}</td><td>{{sbytes .Analysis.Other.Saved}}</td></tr>
 <tr><th>Total</th><th>{{bytes .Analysis.Total.Before}}</th><th>{{bytes .Analysis.Total.After}}</th><th>{{sbytes .Analysis.Total.Saved}}</th></tr>
-</table>
+</table></div>
 <p class="muted">Measured from packet payload sizes. Container/other includes mux overhead, metadata, and attachments.</p>
 
 {{if .Analysis.SSIM}}
 <h2>Quality (sampled SSIM)</h2>
-<table>
+<div class="table-wrap"><table>
 <tr><th>At</th><th>SSIM</th></tr>
 {{range .Analysis.SSIM}}<tr><td>{{printf "%.0f" .AtSeconds}}s</td><td>{{printf "%.4f" .SSIM}}</td></tr>{{end}}
-</table>
+</table></div>
 <p class="muted">Compared against the retained original; higher is better.</p>
 {{end}}
 {{if .Analysis.SSIMError}}<p class="muted">SSIM unavailable: {{.Analysis.SSIMError}}</p>{{end}}
@@ -313,10 +338,11 @@ const jobHTML = `{{define "job"}}{{template "head"}}
 {{end}}
 
 <h2>Decision</h2>
-<div class="card" style="white-space:pre-wrap">{{.Reason}}</div>
+<div class="panel" style="white-space:pre-wrap">{{.Reason}}</div>
 
 {{if .Error}}
 <h2>Error</h2>
-<div class="card" style="white-space:pre-wrap;border-color:#4a1b1b">{{.Error}}</div>
+<div class="panel" style="white-space:pre-wrap;background:#fef2f2;border-color:#fecaca;color:#991b1b">{{.Error}}</div>
 {{end}}
-{{end}}`
+</div>
+</body></html>{{end}}`

@@ -39,7 +39,7 @@ func TestStatusPageRenders(t *testing.T) {
 		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
 	}
 	body := w.Body.String()
-	for _, want := range []string{"lessarr", "Running", "Queued", "Done", "observe only"} {
+	for _, want := range []string{"lessarr", "Dashboard", "Queued", "Done", "Reclaimed"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page missing %q", want)
 		}
@@ -280,7 +280,7 @@ func TestFilesPageShowsQueuedCandidate(t *testing.T) {
 		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
 	}
 	body := w.Body.String()
-	for _, want := range []string{"Example.mkv", "pending", "observe only", "candidate job"} {
+	for _, want := range []string{"Example.mkv", "pending", "Queue"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("files page missing %q", want)
 		}

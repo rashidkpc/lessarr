@@ -44,6 +44,8 @@ type Job struct {
 	UpdatedAt  time.Time
 	StartedAt  time.Time
 	FinishedAt time.Time
+	// Retryable is a UI hint; it is not persisted.
+	Retryable bool `json:"-"`
 }
 
 type File struct {
@@ -202,7 +204,13 @@ const failureCooldown = 24 * time.Hour
 // Enqueue returns false when an active job exists, or when the same path and
 // size failed recently. The cooldown keeps a deterministic failure from being
 // re-queued on every scan.
-func (s *Store) Enqueue(j Job) (bool, error) {
+func (s *Store) Enqueue(j Job) (bool, error) { return s.enqueue(j, false) }
+
+// EnqueueRetry is an explicit operator retry. It still refuses an active job,
+// but bypasses the automatic failure cooldown.
+func (s *Store) EnqueueRetry(j Job) (bool, error) { return s.enqueue(j, true) }
+
+func (s *Store) enqueue(j Job, ignoreFailureCooldown bool) (bool, error) {
 	now := time.Now().Unix()
 	// If a config change gives this path a more specific library, move the
 	// existing pending job with it instead of leaving it under the old policy.
@@ -220,13 +228,16 @@ func (s *Store) Enqueue(j Job) (bool, error) {
 		return false, nil
 	}
 
-	res, err = s.db.Exec(`INSERT INTO jobs (path, library, state, action, codec, reason, size_before, created_at, updated_at)
+	query := `INSERT INTO jobs (path, library, state, action, codec, reason, size_before, created_at, updated_at)
 		SELECT ?, ?, 'pending', ?, ?, ?, ?, ?, ?
-		WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE path = ? AND state IN ('pending','running'))
-		  AND NOT EXISTS (SELECT 1 FROM jobs WHERE path = ? AND state = 'failed'
-			AND size_before = ? AND updated_at > ?)`,
-		j.Path, j.Library, j.Action, j.Codec, j.Reason, j.SizeBefore, now, now, j.Path,
-		j.Path, j.SizeBefore, now-int64(failureCooldown/time.Second))
+		WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE path = ? AND state IN ('pending','running'))`
+	args := []any{j.Path, j.Library, j.Action, j.Codec, j.Reason, j.SizeBefore, now, now, j.Path}
+	if !ignoreFailureCooldown {
+		query += ` AND NOT EXISTS (SELECT 1 FROM jobs WHERE path = ? AND state = 'failed'
+			AND size_before = ? AND updated_at > ?)`
+		args = append(args, j.Path, j.SizeBefore, now-int64(failureCooldown/time.Second))
+	}
+	res, err = s.db.Exec(query, args...)
 	if err != nil {
 		return false, fmt.Errorf("enqueue: %w", err)
 	}
@@ -421,6 +432,21 @@ func fileWhere(q FileQuery) (string, []any) {
 		return "", args
 	}
 	return " WHERE " + strings.Join(clauses, " AND "), args
+}
+
+// SavedSince reports savings and counts after a cutoff, using only the newest
+// completed job per path so re-transcodes do not double-count.
+func (s *Store) SavedSince(since time.Time) (int64, int, error) {
+	var saved int64
+	var done int
+	err := s.db.QueryRow(`SELECT COALESCE(SUM(CASE WHEN j.size_after < j.size_before
+			THEN j.size_before - j.size_after ELSE 0 END), 0), COUNT(*)
+		FROM jobs j
+		WHERE j.state='done' AND j.finished_at >= ?
+		  AND j.id = (SELECT j2.id FROM jobs j2
+			WHERE j2.path = j.path AND j2.state='done'
+			ORDER BY j2.finished_at DESC, j2.id DESC LIMIT 1)`, since.Unix()).Scan(&saved, &done)
+	return saved, done, err
 }
 
 func (s *Store) FilesSummary() (map[string]Summary, error) {
