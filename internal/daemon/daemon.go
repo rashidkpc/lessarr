@@ -43,15 +43,17 @@ type Options struct {
 }
 
 type Daemon struct {
-	cfg      *config.Config
-	store    *queue.Store
-	runner   ffmpeg.Runner
-	prober   probe.Prober
-	backend  ffmpeg.Backend
-	hwDecode map[string]bool
-	writable []string
-	log      io.Writer
-	policy   decision.Policy
+	cfg        *config.Config
+	store      *queue.Store
+	runner     ffmpeg.Runner
+	prober     probe.Prober
+	backend    ffmpeg.Backend
+	hwDecode   map[string]bool
+	writable   []string
+	log        io.Writer
+	policy     decision.Policy
+	progressMu sync.Mutex
+	progress   web.Progress
 }
 
 // Run blocks until ctx is cancelled. With Once set it performs a single scan
@@ -102,7 +104,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 	fmt.Fprintf(d.log, "backend: %s (%s)\n", selection.Backend.Name, selection.Reason)
 
-	handler := web.New(d.cfg, d.store, selection.Backend.Name, o.Version)
+	handler := web.New(d.cfg, d.store, selection.Backend.Name, o.Version, d.currentProgress)
 	server := &http.Server{
 		Addr:              d.cfg.Server.Listen,
 		Handler:           handler,
@@ -278,6 +280,8 @@ func (d *Daemon) runJob(ctx context.Context, n int, job *queue.Job) {
 		return
 	}
 	fmt.Fprintf(d.log, "job %d start: %s (%s)\n", job.ID, job.Path, job.Action)
+	d.startProgress(job.ID)
+	defer d.clearProgress()
 	result, err := worker.Once(ctx, job.Path, worker.Options{
 		Runner:         d.runner,
 		Prober:         d.prober,
@@ -286,6 +290,9 @@ func (d *Daemon) runJob(ctx context.Context, n int, job *queue.Job) {
 		Library:        lib,
 		Policy:         d.policy,
 		OriginalLang:   probe.OriginalLanguageFromFilename(job.Path),
+		Progress:       d.updateProgress,
+		OnInfo:         d.setProgressInfo,
+		Phase:          d.setProgressPhase,
 	})
 	if err != nil {
 		if ctx.Err() != nil {
@@ -322,6 +329,68 @@ func (d *Daemon) supportsHardwareDecode(codec string) bool {
 		return false
 	}
 	return d.hwDecode[codec]
+}
+
+func (d *Daemon) startProgress(jobID int64) {
+	d.progressMu.Lock()
+	defer d.progressMu.Unlock()
+	now := time.Now()
+	d.progress = web.Progress{JobID: jobID, Phase: "probing", Started: now, Updated: now}
+}
+
+func (d *Daemon) clearProgress() {
+	d.progressMu.Lock()
+	defer d.progressMu.Unlock()
+	d.progress = web.Progress{}
+}
+
+func (d *Daemon) setProgressInfo(info *probe.MediaInfo) {
+	d.progressMu.Lock()
+	defer d.progressMu.Unlock()
+	if info != nil && info.Duration > 0 {
+		d.progress.Duration = time.Duration(info.Duration * float64(time.Second))
+	}
+	d.progress.Updated = time.Now()
+}
+
+func (d *Daemon) setProgressPhase(phase string) {
+	d.progressMu.Lock()
+	defer d.progressMu.Unlock()
+	d.progress.Phase = phase
+	if phase != "encoding" {
+		d.progress.Percent = 100
+	}
+	d.progress.Updated = time.Now()
+}
+
+func (d *Daemon) updateProgress(p ffmpeg.Progress) {
+	d.progressMu.Lock()
+	defer d.progressMu.Unlock()
+	d.progress.Frame = p.Frame
+	d.progress.OutTime = p.OutTime
+	d.progress.Speed = p.Speed
+	d.progress.TotalSize = p.TotalSize
+	if d.progress.Duration > 0 {
+		pct := float64(p.OutTime) / float64(d.progress.Duration) * 100
+		if pct < 0 {
+			pct = 0
+		}
+		if pct > 100 {
+			pct = 100
+		}
+		d.progress.Percent = pct
+	}
+	d.progress.Updated = time.Now()
+}
+
+func (d *Daemon) currentProgress() *web.Progress {
+	d.progressMu.Lock()
+	defer d.progressMu.Unlock()
+	if d.progress.JobID == 0 {
+		return nil
+	}
+	copy := d.progress
+	return &copy
 }
 
 // InSchedule reports whether now falls inside "always" or "HH:MM-HH:MM".

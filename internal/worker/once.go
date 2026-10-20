@@ -30,6 +30,8 @@ type Options struct {
 	Force          bool
 	Timeout        time.Duration
 	Progress       func(ffmpeg.Progress)
+	OnInfo         func(*probe.MediaInfo)
+	Phase          func(string)
 	FailAfter      string // test hook; normally set by LESSARR_FAIL_AFTER
 }
 
@@ -71,6 +73,9 @@ func Once(ctx context.Context, path string, o Options) (Result, error) {
 	}
 	if !before.Mode().IsRegular() || !lstat.Mode().IsRegular() {
 		return Result{}, fmt.Errorf("source must be a regular file, not a symlink or special file")
+	}
+	if o.OnInfo != nil {
+		o.OnInfo(info)
 	}
 
 	d := decision.Decide(info, o.Library, o.Policy, decision.Options{
@@ -131,8 +136,14 @@ func Once(ctx context.Context, path string, o Options) (Result, error) {
 	if err != nil {
 		return result, err
 	}
+	if o.Phase != nil {
+		o.Phase("encoding")
+	}
 	if err := o.Runner.Encode(ctx, args, o.Timeout, o.Progress); err != nil {
 		return result, err
+	}
+	if o.Phase != nil {
+		o.Phase("validating")
 	}
 	if err := failAt(o.FailAfter, "encode"); err != nil {
 		return result, err

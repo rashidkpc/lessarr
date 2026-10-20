@@ -32,6 +32,8 @@ code { color:#b7d6a8; }
 .chip { display:inline-block; padding:.2rem .55rem; border:1px solid #333; border-radius:999px; margin:0 .35rem .35rem 0; color:#bbb; }
 .chip.active { background:#2d4a7a; color:#fff; border-color:#2d4a7a; }
 .notice { margin:1rem 0; border-color:#4a3410; }
+.bar { height:10px; background:#222; border-radius:999px; overflow:hidden; margin:.7rem 0 .4rem; }
+.bar span { display:block; height:100%; background:#2d7a4a; }
 </style>
 </head>
 <body>{{end}}
@@ -73,6 +75,17 @@ Writes are disabled, so the worker will not claim them. <a href="/files?action=t
 <div><code>{{.Current.Path}}</code></div>
 <div class="muted">{{.Current.Action}} · {{.Current.Library}} · started {{when .Current.StartedAt}}</div>
 <div>{{.Current.Reason}}</div>
+{{if .Progress}}
+<div class="bar"><span style="width:{{printf "%.1f" .Progress.Percent}}%"></span></div>
+<div class="muted">
+{{.Progress.Phase}} · {{printf "%.0f%%" .Progress.Percent}}
+· {{.Progress.Frame}} frames
+· {{dur .Progress.OutTime}} / {{dur .Progress.Duration}}
+{{if .Progress.Speed}} · speed {{.Progress.Speed}}{{end}}
+· {{bytes .Progress.TotalSize}} written
+· updated {{when .Progress.Updated}}
+</div>
+{{end}}
 </div>
 {{end}}
 
@@ -97,7 +110,7 @@ Writes are disabled, so the worker will not claim them. <a href="/files?action=t
 <td>{{.ID}}</td>
 <td><div><code>{{.Path}}</code></div><div class="muted">{{.Reason}}{{if .Error}} · <span class="err">{{.Error}}</span>{{end}}</div></td>
 <td><span class="badge {{if eq .StateName "done"}}ok{{else if eq .StateName "failed"}}err{{else if eq .StateName "running"}}warn{{end}}">{{.StateName}}</span></td>
-<td>{{bytes .SizeBefore}} → {{bytes .SizeAfter}}{{if gt .SizeAfter 0}} <span class="muted">({{saved .SizeBefore .SizeAfter}})</span>{{end}}</td>
+<td>{{bytes .SizeBefore}}{{if and (eq .StateName "done") (gt .SizeAfter 0)}} → {{bytes .SizeAfter}} <span class="muted">({{saved .SizeBefore .SizeAfter}})</span>{{else if eq .StateName "running"}} <span class="muted">in progress</span>{{else if eq .StateName "pending"}} <span class="muted">queued</span>{{end}}</td>
 <td class="muted">{{when .UpdatedAt}}</td>
 </tr>
 {{else}}

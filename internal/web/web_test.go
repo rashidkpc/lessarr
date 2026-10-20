@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rashidkpc/lessarr/internal/config"
 	"github.com/rashidkpc/lessarr/internal/queue"
@@ -21,7 +22,7 @@ func testServer(t *testing.T) *Server {
 	t.Cleanup(func() { _ = store.Close() })
 	cfg := config.Default()
 	cfg.Libraries = []config.Library{{Name: "Movies", Path: "/media/movies"}}
-	return New(&cfg, store, "vaapi", "test")
+	return New(&cfg, store, "vaapi", "test", nil)
 }
 
 func TestStatusPageRenders(t *testing.T) {
@@ -77,6 +78,47 @@ func TestFilesPageShowsQueuedCandidate(t *testing.T) {
 	for _, want := range []string{"Example.mkv", "pending", "observe only", "candidate job"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("files page missing %q", want)
+		}
+	}
+}
+
+func TestProgressAppearsInStatusAndPage(t *testing.T) {
+	store, err := queue.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	cfg := config.Default()
+	cfg.Libraries = []config.Library{{Name: "Movies", Path: "/media/movies"}}
+	if _, err := store.Enqueue(queue.Job{Path: "/media/movies/a.mkv", Library: "Movies", Action: "transcode", SizeBefore: 123}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Claim(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	s := New(&cfg, store, "vaapi", "test", func() *Progress {
+		return &Progress{JobID: 7, Phase: "encoding", Percent: 42, Frame: 1234,
+			OutTime: 30 * time.Second, Duration: 2 * time.Minute, Speed: "2.4x",
+			TotalSize: 100 << 20, Started: now, Updated: now}
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	var status Status
+	if err := json.NewDecoder(w.Body).Decode(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status.Progress == nil || status.Progress.Percent != 42 || status.Progress.Phase != "encoding" {
+		t.Fatalf("progress = %+v", status.Progress)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/", nil)
+	w = httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	body := w.Body.String()
+	for _, want := range []string{"encoding", "42%", "2.4x", "0:30", "2:00"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("progress page missing %q", want)
 		}
 	}
 }

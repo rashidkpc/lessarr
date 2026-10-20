@@ -19,16 +19,32 @@ type Server struct {
 	store     *queue.Store
 	backend   string
 	version   string
+	progress  func() *Progress
 	templates *template.Template
 }
 
-func New(cfg *config.Config, store *queue.Store, backend, version string) *Server {
+// Progress is a snapshot of the currently running job's encoder progress.
+type Progress struct {
+	JobID     int64
+	Phase     string
+	Frame     int64
+	OutTime   time.Duration
+	Duration  time.Duration
+	Speed     string
+	TotalSize int64
+	Percent   float64
+	Started   time.Time
+	Updated   time.Time
+}
+
+func New(cfg *config.Config, store *queue.Store, backend, version string, progress func() *Progress) *Server {
 	return &Server{
-		cfg: cfg, store: store, backend: backend, version: version,
+		cfg: cfg, store: store, backend: backend, version: version, progress: progress,
 		templates: template.Must(template.New("root").Funcs(template.FuncMap{
 			"bytes": humanBytes,
 			"when":  humanWhen,
 			"saved": savedPercent,
+			"dur":   humanDuration,
 		}).Parse(sharedHTML + pageHTML + filesHTML)),
 	}
 }
@@ -106,6 +122,7 @@ type Status struct {
 	Counts        queue.Counts
 	Libraries     []LibraryStatus
 	Current       *queue.Job
+	Progress      *Progress
 	Recent        []queue.Job
 }
 
@@ -130,11 +147,15 @@ func (s *Server) collect() (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
+	var progress *Progress
+	if s.progress != nil {
+		progress = s.progress()
+	}
 	status := Status{
 		Version: s.version, Backend: s.backend, Device: s.cfg.Encoder.Device,
 		Schedule: s.cfg.Encoder.Schedule, Paused: paused,
 		ScanEvery: s.cfg.Server.ScanInterval.Std().String(),
-		Counts:    counts, Current: current, Recent: recent,
+		Counts:    counts, Current: current, Progress: progress, Recent: recent,
 	}
 	for _, l := range s.cfg.Libraries {
 		ls := LibraryStatus{Name: l.Name, Path: l.Path, Write: l.Write, Paused: paused}
@@ -180,6 +201,20 @@ func humanWhen(t time.Time) string {
 }
 
 func formatFloat(v float64) string { return strconv.FormatFloat(v, 'f', 1, 64) }
+
+func humanDuration(d time.Duration) string {
+	if d <= 0 {
+		return "0s"
+	}
+	d = d.Round(time.Second)
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+	if h > 0 {
+		return fmt.Sprintf("%d:%02d:%02d", h, m, s)
+	}
+	return fmt.Sprintf("%d:%02d", m, s)
+}
 
 func savedPercent(before, after int64) string {
 	if before <= 0 || after <= 0 || after >= before {
