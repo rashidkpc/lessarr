@@ -43,6 +43,11 @@ func Files(root string, cfg *config.Config) ([]string, int) {
 			}
 			return nil
 		}
+		// Temp outputs are created beside the source and end in .mkv/.mp4.
+		// Never let a scan enqueue its own in-progress file or trash entry.
+		if strings.HasPrefix(d.Name(), ".") {
+			return nil
+		}
 		if !mediaExts[strings.ToLower(filepath.Ext(path))] {
 			return nil
 		}

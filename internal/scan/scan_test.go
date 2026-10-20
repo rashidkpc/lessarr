@@ -11,7 +11,7 @@ import (
 
 func TestFilesSkipsMetadataDirectoriesAndNonMedia(t *testing.T) {
 	root := t.TempDir()
-	for _, name := range []string{"movie.mkv", "episode.MP4", "notes.txt", "@eaDir/thumb.jpg", ".hidden/a.mkv", "#recycle/b.mkv"} {
+	for _, name := range []string{"movie.mkv", "episode.MP4", "notes.txt", "@eaDir/thumb.jpg", ".hidden/a.mkv", "#recycle/b.mkv", ".lessarr-123.tmp.mkv", ".hidden.mkv"} {
 		path := filepath.Join(root, name)
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
