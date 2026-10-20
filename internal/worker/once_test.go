@@ -3,6 +3,7 @@ package worker
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -178,6 +179,67 @@ func TestOnceEncodesValidatesSwapsAndPreservesOriginal(t *testing.T) {
 	}
 	if second.Decision.Action != decision.Skip || !second.Decision.Has(decision.CodeProvenance) {
 		t.Errorf("second run should skip tagged output, got %s %v", second.Decision.Action, second.Decision.Codes)
+	}
+}
+
+func TestCheckSavings(t *testing.T) {
+	lib := config.DefaultLibrary()
+	lib.MinSavingsPercent = 25
+	lib.MinRemuxBytes = 100
+	mb := config.MB
+	cases := []struct {
+		name    string
+		before  int64
+		after   int64
+		d       decision.Decision
+		wantErr bool
+	}{
+		{"transcode passes", 1000 * mb, 700 * mb, decision.Decision{Action: decision.Transcode}, false},
+		{"transcode below bar", 1000 * mb, 900 * mb, decision.Decision{Action: decision.Transcode}, true},
+		{"output grew", 1000 * mb, 1001 * mb, decision.Decision{Action: decision.Transcode}, true},
+		{"remux passes", 1000 * mb, 800 * mb, decision.Decision{Action: decision.Remux}, false},
+		{"remux below bar", 1000 * mb, 950 * mb, decision.Decision{Action: decision.Remux}, true},
+		{"container remux may not shrink", 1000 * mb, 1001 * mb, decision.Decision{
+			Action: decision.Remux, Codes: []decision.Code{decision.CodeContainerRemux},
+		}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := checkSavings(tc.before, tc.after, tc.d, lib)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("checkSavings() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if err != nil {
+				var permanent *PermanentError
+				if !errors.As(err, &permanent) {
+					t.Errorf("error should be permanent: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestOnceRejectsOutputBelowSavingsBar(t *testing.T) {
+	dir := t.TempDir()
+	path := makeH264Fixture(t, dir)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := testOptions()
+	o.Force = true
+	o.Library.MinSavingsPercent = 99
+	_, err = Once(context.Background(), path, o)
+	var permanent *PermanentError
+	if !errors.As(err, &permanent) {
+		t.Fatalf("expected a permanent savings error, got %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("failed savings check modified the source")
 	}
 }
 

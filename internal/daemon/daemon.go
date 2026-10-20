@@ -302,6 +302,12 @@ func (d *Daemon) runJob(ctx context.Context, n int, job *queue.Job) {
 		if ctx.Err() != nil {
 			return
 		}
+		var permanent *worker.PermanentError
+		if errors.As(err, &permanent) {
+			_ = d.store.Fail(job.ID, maxAttempts, maxAttempts, err.Error(), 0)
+			fmt.Fprintf(d.log, "job %d failed permanently: %v\n", job.ID, err)
+			return
+		}
 		_ = d.store.Fail(job.ID, job.Attempts, maxAttempts, err.Error(), retryDelay)
 		fmt.Fprintf(d.log, "job %d failed (attempt %d/%d): %v\n", job.ID, job.Attempts, maxAttempts, err)
 		return

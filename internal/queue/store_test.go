@@ -109,6 +109,24 @@ func TestFailRequeuesThenStops(t *testing.T) {
 	}
 }
 
+func TestEnqueueSkipsRecentlyFailedPath(t *testing.T) {
+	s := openTest(t)
+	j := Job{Path: "/media/a.mkv", Library: "TV", Action: "remux", SizeBefore: 1000}
+	if added, err := s.Enqueue(j); err != nil || !added {
+		t.Fatalf("first Enqueue = %v, %v", added, err)
+	}
+	job, err := s.Claim(time.Now())
+	if err != nil || job == nil {
+		t.Fatal(err)
+	}
+	if err := s.Fail(job.ID, 1, 1, "will not shrink", 0); err != nil {
+		t.Fatal(err)
+	}
+	if added, err := s.Enqueue(j); err != nil || added {
+		t.Fatalf("Enqueue after failure = %v, %v; want false", added, err)
+	}
+}
+
 func TestClaimOnlyTakesWritableLibraries(t *testing.T) {
 	s := openTest(t)
 	if _, err := s.Enqueue(Job{Path: "/media/tv.mkv", Library: "TV", Action: "transcode"}); err != nil {

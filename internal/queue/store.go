@@ -192,13 +192,20 @@ func (s *Store) PutFile(f File) error {
 	return nil
 }
 
-// Enqueue returns false when an active job for the path already exists.
+const failureCooldown = 24 * time.Hour
+
+// Enqueue returns false when an active job exists, or when the same path and
+// size failed recently. The cooldown keeps a deterministic failure from being
+// re-queued on every scan.
 func (s *Store) Enqueue(j Job) (bool, error) {
 	now := time.Now().Unix()
 	res, err := s.db.Exec(`INSERT INTO jobs (path, library, state, action, codec, reason, size_before, created_at, updated_at)
 		SELECT ?, ?, 'pending', ?, ?, ?, ?, ?, ?
-		WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE path = ? AND state IN ('pending','running'))`,
-		j.Path, j.Library, j.Action, j.Codec, j.Reason, j.SizeBefore, now, now, j.Path)
+		WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE path = ? AND state IN ('pending','running'))
+		  AND NOT EXISTS (SELECT 1 FROM jobs WHERE path = ? AND state = 'failed'
+			AND size_before = ? AND updated_at > ?)`,
+		j.Path, j.Library, j.Action, j.Codec, j.Reason, j.SizeBefore, now, now, j.Path,
+		j.Path, j.SizeBefore, now-int64(failureCooldown/time.Second))
 	if err != nil {
 		return false, fmt.Errorf("enqueue: %w", err)
 	}

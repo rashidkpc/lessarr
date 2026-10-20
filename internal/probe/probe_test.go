@@ -255,3 +255,20 @@ func TestSampleVideoBitrate(t *testing.T) {
 		t.Errorf("sampled bitrate = %d, want roughly 1.5 Mbps", got)
 	}
 }
+
+func TestLosslessBitrateFallbacksAreChannelAware(t *testing.T) {
+	cases := []struct {
+		audio Audio
+		want  int64
+	}{
+		{Audio{Codec: "flac", Channels: 1}, 240_000},
+		{Audio{Codec: "flac", Channels: 2}, 900_000},
+		{Audio{Codec: "alac", Channels: 6}, 2_500_000},
+		{Audio{Codec: "truehd", Channels: 8}, 3_000_000},
+	}
+	for _, tc := range cases {
+		if got := tc.audio.BitRate(); got != tc.want {
+			t.Errorf("%s/%d bitrate = %d, want %d", tc.audio.Codec, tc.audio.Channels, got, tc.want)
+		}
+	}
+}

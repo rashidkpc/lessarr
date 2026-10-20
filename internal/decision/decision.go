@@ -522,6 +522,10 @@ func langLabel(lang string) string {
 }
 
 func eac3Bitrate(pol config.Audio, channels int) int64 {
+	if channels <= 1 {
+		// 256k for mono can be larger than the lossless track it replaces.
+		return 128_000
+	}
 	s := pol.EAC3Bitrate20
 	if channels >= 6 {
 		s = pol.EAC3Bitrate51

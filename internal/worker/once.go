@@ -44,6 +44,13 @@ type Result struct {
 	Elapsed  time.Duration
 }
 
+// PermanentError marks a failure that retrying cannot fix, such as an output
+// that misses the library's savings bar.
+type PermanentError struct{ Err error }
+
+func (e *PermanentError) Error() string { return e.Err.Error() }
+func (e *PermanentError) Unwrap() error { return e.Err }
+
 // Once decides and, only when enabled or explicitly forced, processes one file.
 // --force bypasses the per-library write=false guard, not safety or policy
 // decisions: a Skip remains a Skip.
@@ -164,6 +171,9 @@ func Once(ctx context.Context, path string, o Options) (Result, error) {
 	if err := sourceUnchanged(path, before); err != nil {
 		return result, err
 	}
+	if err := checkSavings(before.Size(), output.Size, d, o.Library); err != nil {
+		return result, err
+	}
 
 	if err := swap.Prepare(path, temp); err != nil {
 		return result, err
@@ -181,6 +191,40 @@ func Once(ctx context.Context, path string, o Options) (Result, error) {
 	result.Backup = backup
 	result.Elapsed = time.Since(started)
 	return result, nil
+}
+
+// checkSavings refuses a validated output that misses the configured bar. The
+// decision engine estimates; this check measures. A miss is permanent because
+// re-encoding the same source would miss the same bar.
+func checkSavings(before, after int64, d decision.Decision, lib config.Library) error {
+	if after <= 0 {
+		return &PermanentError{Err: fmt.Errorf("output is empty; refusing to replace")}
+	}
+	// A container-fix remux is about track/container correctness, not bytes.
+	if d.Action == decision.Remux && d.Has(decision.CodeContainerRemux) {
+		return nil
+	}
+	saved := before - after
+	if saved < 0 {
+		return &PermanentError{Err: fmt.Errorf("output grew by %s; refusing to replace", humanBytes(-saved))}
+	}
+	switch d.Action {
+	case decision.Transcode:
+		need := int64(float64(before) * lib.MinSavingsPercent / 100)
+		if saved < need {
+			return &PermanentError{Err: fmt.Errorf(
+				"output saves %s (%.1f%%), below min_savings_percent %.0f%%; refusing to replace",
+				humanBytes(saved), float64(saved)/float64(before)*100, lib.MinSavingsPercent)}
+		}
+	case decision.Remux:
+		need := lib.MinRemuxBytes * config.MB
+		if saved < need {
+			return &PermanentError{Err: fmt.Errorf(
+				"output saves %s, below the %d MB remux bar; refusing to replace",
+				humanBytes(saved), lib.MinRemuxBytes)}
+		}
+	}
+	return nil
 }
 
 // TargetContainer returns an in-place-safe extension/muxer pair. Formats that

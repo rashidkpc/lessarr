@@ -150,6 +150,16 @@ func (a Audio) BitRate() int64 {
 	case "mp3":
 		return 192_000
 	case "flac", "alac":
+		switch a.Channels {
+		case 1:
+			return 240_000
+		case 2:
+			return 900_000
+		case 6:
+			return 2_500_000
+		case 8:
+			return 3_500_000
+		}
 		return 900_000
 	case "vorbis":
 		return 160_000

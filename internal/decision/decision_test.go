@@ -409,3 +409,12 @@ func TestDurationGate(t *testing.T) {
 		}
 	})
 }
+
+func TestMonoLosslessUsesLowBitrateEAC3(t *testing.T) {
+	if got := eac3Bitrate(config.Default().Audio, 1); got != 128_000 {
+		t.Fatalf("mono eac3 bitrate = %d, want 128000", got)
+	}
+	if got := eac3Bitrate(config.Default().Audio, 2); got != 256_000 {
+		t.Fatalf("stereo eac3 bitrate = %d, want 256000", got)
+	}
+}
