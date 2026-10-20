@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rashidkpc/lessarr/internal/calibrate"
 	"github.com/rashidkpc/lessarr/internal/config"
 	"github.com/rashidkpc/lessarr/internal/decision"
 	"github.com/rashidkpc/lessarr/internal/ffmpeg"
@@ -50,6 +51,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdSelftest(ctx, args[1:], stdout, stderr)
 	case "once":
 		return cmdOnce(ctx, args[1:], stdout, stderr)
+	case "calibrate":
+		return cmdCalibrate(ctx, args[1:], stdout, stderr)
 	case "probe":
 		return cmdProbe(ctx, args[1:], stdout, stderr)
 	case "stats":
@@ -69,6 +72,7 @@ Usage:
   lessarr stats [--config FILE] [--top N] [--workers N] [--reasons] <path>
   lessarr selftest [--config FILE] [--device PATH] [--seconds N] [path]
   lessarr once [--config FILE] [--backend auto|vaapi|qsv|software] [--force] <file>
+  lessarr calibrate [--config FILE] [--device PATH] [--qps LIST] [--segments N] [--segment-seconds N] [--work-dir DIR] <file>
   lessarr config-validate [--config FILE]
   lessarr version
 
@@ -77,6 +81,7 @@ stats    walk a path, decide every file, report the projected outcome.
 selftest check this host: GPU, drivers, encoders, permissions. Writes nothing
          except a temporary file it removes again.
 once     decide, encode/remux, validate, and atomically replace one file.
+calibrate offline VAAPI CQP sweep; reads the source and writes only temporary local samples.
 config   load and validate a config file.
 
 once processes one file; write=false keeps it observe-only unless --force
@@ -289,6 +294,114 @@ func cmdOnce(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			path, result.Backup, result.Elapsed.Round(time.Second))
 	}
 	return 0
+}
+
+func cmdCalibrate(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("calibrate", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cfgPath := fs.String("config", "", "config file (uses encoder.device)")
+	device := fs.String("device", "", "VAAPI render device")
+	qpsFlag := fs.String("qps", "18,22,26,30", "VAAPI CQP values, comma-separated")
+	segments := fs.Int("segments", 3, "number of evenly spaced source segments (1..5)")
+	segmentSeconds := fs.Int("segment-seconds", 10, "duration of each segment (1..60 seconds)")
+	workDir := fs.String("work-dir", "", "local scratch directory (default: system temp directory)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintln(stderr, "lessarr calibrate: exactly one source file is required")
+		return 2
+	}
+	qps, err := calibrate.ParseQPs(*qpsFlag)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr calibrate:", err)
+		return 2
+	}
+	selectedDevice := *device
+	if *cfgPath != "" {
+		cfg, err := config.Load(*cfgPath)
+		if err != nil {
+			fmt.Fprintln(stderr, "lessarr:", err)
+			return 1
+		}
+		if selectedDevice == "" {
+			selectedDevice = cfg.Encoder.Device
+		}
+	}
+	if *segmentSeconds < 1 || *segmentSeconds > 60 {
+		fmt.Fprintln(stderr, "lessarr calibrate: segment-seconds must be between 1 and 60")
+		return 2
+	}
+	if *segments < 1 || *segments > 5 {
+		fmt.Fprintln(stderr, "lessarr calibrate: segments must be between 1 and 5")
+		return 2
+	}
+
+	report, err := calibrate.Run(ctx, calibrate.Options{
+		File:          fs.Arg(0),
+		Device:        selectedDevice,
+		QPs:           qps,
+		SegmentCount:  *segments,
+		SegmentLength: time.Duration(*segmentSeconds) * time.Second,
+		WorkDir:       *workDir,
+		Progress: func(segment, count, qp int) {
+			fmt.Fprintf(stderr, "\rcalibrating segment %d/%d at QP %d...", segment, count, qp)
+		},
+	})
+	fmt.Fprintln(stderr)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr calibrate:", err)
+		return 1
+	}
+	printCalibration(stdout, report)
+	return 0
+}
+
+func printCalibration(w io.Writer, report calibrate.Report) {
+	fmt.Fprintf(w, "source:    %s\n", report.File)
+	fmt.Fprintf(w, "video:     %dx%d, %s\n", report.Width, report.Height, humanDuration(report.SourceDuration.Seconds()))
+	fmt.Fprintf(w, "encoder:   hevc_vaapi CQP, device %s\n", report.Device)
+	fmt.Fprintf(w, "segments:  %d × %s\n\n", len(report.Segments), report.Segments[0].Duration)
+	fmt.Fprintf(w, "%-7s %9s %-5s %12s %10s %11s %10s\n", "segment", "start", "QP", "size", "SSIM", "XPSNR", "encode")
+	for _, result := range report.Measurements {
+		fmt.Fprintf(w, "%-7d %9s %-5d %12s %10.6f %11s %10s\n",
+			result.Segment.Index, humanDuration(result.Segment.Start.Seconds()), result.QP, humanBytes(result.Bytes), result.SSIM, xpsnrLabel(report.XPSNRAvailable, result.XPSNR), result.EncodeElapsed.Round(time.Millisecond))
+	}
+	fmt.Fprintln(w, "\nQP summary (mean quality across segments; total is sampled video bytes)")
+	fmt.Fprintf(w, "%-5s %14s %12s %12s\n", "QP", "total size", "mean SSIM", "mean XPSNR")
+	for _, qp := range report.QPs {
+		var total int64
+		var ssim, xpsnr float64
+		count := 0
+		for _, result := range report.Measurements {
+			if result.QP != qp {
+				continue
+			}
+			total += result.Bytes
+			ssim += result.SSIM
+			xpsnr += result.XPSNR
+			count++
+		}
+		if count == 0 {
+			continue
+		}
+		xpsnrText := "n/a"
+		if report.XPSNRAvailable {
+			xpsnrText = fmt.Sprintf("%.2f dB", xpsnr/float64(count))
+		}
+		fmt.Fprintf(w, "%-5d %14s %12.6f %12s\n", qp, humanBytes(total), ssim/float64(count), xpsnrText)
+	}
+	if !report.XPSNRAvailable {
+		fmt.Fprintln(w, "\nXPSNR is unavailable in this FFmpeg build; SSIM is reported alone.")
+	}
+	fmt.Fprintln(w, "Temporary encodes were deleted; the source was not modified.")
+}
+
+func xpsnrLabel(available bool, value float64) string {
+	if !available {
+		return "n/a"
+	}
+	return fmt.Sprintf("%.2f dB", value)
 }
 
 func resolveConfig(cfgPath, path string, stderr io.Writer) (*config.Config, config.Library, decision.Policy) {

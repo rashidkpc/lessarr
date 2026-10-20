@@ -10,8 +10,9 @@ graph, no opaque queue. Every decision comes with a reason you can read.
 
 **M1.** `probe` and `stats` are read-only. `once` can encode/remux one file after
 validation and retain the original in `.lessarr-trash`; it is withheld by
-default because each library has `write = false`. Continuous watching, queue
-and dashboard are not implemented yet.
+default because each library has `write = false`. `calibrate` measures an offline
+VAAPI quality/size curve without modifying its source. Continuous watching,
+queue and dashboard are not implemented yet.
 
 Writing stays opt-in per library:
 
@@ -68,6 +69,11 @@ lessarr stats --config config.toml --top 20 --reasons
 # nothing and removes the one temporary file it creates.
 lessarr selftest /media
 
+# Compare VAAPI CQP settings on three 10-second real-media segments.
+# Outputs go to local temporary scratch and are removed on completion.
+lessarr calibrate --qps 18,22,26,30 --segments 3 --segment-seconds 10 \
+  /media/Movies/Example.mkv
+
 # Process one file. With write=false this reports the decision and does nothing.
 lessarr once --config config.toml /media/movies/Example.mkv
 
@@ -92,6 +98,12 @@ filter chain and fail at runtime otherwise.
 formats that would need an extension change are refused rather than left with a
 misleading extension. Replacements are validated, preserve file metadata, and
 retain the original in `.lessarr-trash`.
+
+`calibrate` selects evenly spaced segments near 10%, 50%, and 90% of a
+progressive SDR source, encodes each at the requested VAAPI QPs, then reports
+size, SSIM, and XPSNR. It writes only local scratch files (FFV1 reference clips
+and HEVC samples), removes them afterward, and never writes beside or replaces
+the source. Defaults are 10 seconds per segment and QPs 18, 22, 26, and 30.
 
 ## Docker
 

@@ -349,6 +349,12 @@ func (r Runner) runTimeout(ctx context.Context, timeout time.Duration, args ...s
 	return msg, nil
 }
 
+// RunCapture executes one ffmpeg command and returns its captured stderr. This
+// is useful for filters such as SSIM/XPSNR that report measurements in logs.
+func (r Runner) RunCapture(ctx context.Context, timeout time.Duration, args ...string) (string, error) {
+	return r.runTimeout(ctx, timeout, args...)
+}
+
 func lastLines(s string, n int) string {
 	lines := strings.Split(strings.TrimSpace(s), "\n")
 	if len(lines) > n {
