@@ -49,6 +49,15 @@ code { color:#b7d6a8; }
 {{define "nav"}}<nav><a href="/">Dashboard</a><a href="/files">Files</a></nav>{{end}}`
 
 const dashboardHTML = `{{define "dashboard"}}
+<div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:.8rem">
+<div class="muted">
+{{if .Paused}}<span class="badge warn">paused</span>{{else}}<span class="badge ok">running</span>{{end}}
+{{if .WritesEnabled}}<span class="badge ok">writes enabled</span>{{else}}<span class="badge">observe only</span>{{end}}
+</div>
+<form method="post" action="{{if .Paused}}/api/resume{{else}}/api/pause{{end}}">
+<button type="submit" title="{{if .Paused}}Resume claiming jobs{{else}}Finish the current job, then stop claiming new jobs{{end}}">{{if .Paused}}Resume{{else}}Pause{{end}}</button>
+</form>
+</div>
 <div class="tabs">
 {{range .Tabs}}
 <a class="tab {{if .Active}}active{{end}}" href="{{.Href}}">{{.Label}} <span class="count">{{.Count}}</span></a>
@@ -136,10 +145,6 @@ const dashboardHTML = `{{define "dashboard"}}
 const pageHTML = `{{define "page"}}{{template "head"}}
 <h1>lessarr <span class="muted">v{{.Version}}</span></h1>
 {{template "nav"}}
-<div class="muted">
-{{if .Paused}}<span class="badge warn">paused</span>{{else}}<span class="badge ok">running</span>{{end}}
-{{if .WritesEnabled}}<span class="badge ok">writes enabled</span>{{else}}<span class="badge">observe only</span>{{end}}
-</div>
 
 <div id="live" data-tab="{{.Tab}}">
 {{template "dashboard" .}}

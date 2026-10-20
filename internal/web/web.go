@@ -63,6 +63,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("ok\n"))
 	case r.URL.Path == "/api/status":
 		s.statusJSON(w)
+	case r.URL.Path == "/api/pause" && r.Method == http.MethodPost:
+		s.setPaused(w, r, true)
+	case r.URL.Path == "/api/resume" && r.Method == http.MethodPost:
+		s.setPaused(w, r, false)
 	case r.URL.Path == "/" && r.Method == http.MethodGet:
 		s.statusPage(w, r)
 	case r.URL.Path == "/fragment" && r.Method == http.MethodGet:
@@ -106,6 +110,14 @@ func (s *Server) prepareStatus(r *http.Request) (Status, error) {
 		{Key: "failed", Label: "Failed", Count: status.Counts.Failed, Href: "/?tab=failed", Active: status.Tab == "failed"},
 	}
 	return status, nil
+}
+
+func (s *Server) setPaused(w http.ResponseWriter, r *http.Request, paused bool) {
+	if err := s.store.SetPaused(paused); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (s *Server) statusPage(w http.ResponseWriter, r *http.Request) {

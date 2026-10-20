@@ -127,6 +127,26 @@ func TestPagePollsFragmentInsteadOfReloading(t *testing.T) {
 	}
 }
 
+func TestPauseAndResumeEndpoint(t *testing.T) {
+	s := testServer(t)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/pause", nil))
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("pause status = %d", w.Code)
+	}
+	if paused, err := s.store.Paused(); err != nil || !paused {
+		t.Fatalf("Paused = %v, %v", paused, err)
+	}
+	w = httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/resume", nil))
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("resume status = %d", w.Code)
+	}
+	if paused, err := s.store.Paused(); err != nil || paused {
+		t.Fatalf("Paused after resume = %v, %v", paused, err)
+	}
+}
+
 func TestStatusJSON(t *testing.T) {
 	s := testServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
