@@ -4,7 +4,6 @@ const sharedHTML = `{{define "head"}}<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="refresh" content="5">
 <title>lessarr</title>
 <style>
 :root { color-scheme: dark; }
@@ -129,6 +128,7 @@ Writes are disabled, so the worker will not claim them. <a href="/files?action=t
 <tr><td colspan="5" class="muted">No jobs yet.</td></tr>
 {{end}}
 </table>
+<script>setTimeout(function () { location.reload(); }, 5000);</script>
 {{end}}`
 
 const filesHTML = `{{define "files"}}{{template "head"}}
