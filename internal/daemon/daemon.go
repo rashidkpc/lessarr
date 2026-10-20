@@ -49,6 +49,7 @@ type Daemon struct {
 	prober   probe.Prober
 	backend  ffmpeg.Backend
 	hwDecode map[string]bool
+	writable []string
 	log      io.Writer
 	policy   decision.Policy
 }
@@ -77,11 +78,16 @@ func Run(ctx context.Context, o Options) error {
 		log:     o.Log,
 		policy:  decision.Policy{Audio: o.Config.Audio, Subtitles: o.Config.Subtitles},
 	}
+	for _, lib := range o.Config.Libraries {
+		if lib.Write {
+			d.writable = append(d.writable, lib.Name)
+		}
+	}
 	if o.Once {
 		return d.sweep(ctx, true)
 	}
 
-	if err := d.store.ResetRunning(); err != nil {
+	if err := d.store.ResetInterrupted(); err != nil {
 		return fmt.Errorf("recover interrupted jobs: %w", err)
 	}
 	selection, err := ffmpeg.Select(ctx, d.cfg.Encoder.Backend, d.cfg.Encoder.Device, "", d.runner)
@@ -201,7 +207,7 @@ func (d *Daemon) sweep(ctx context.Context, force bool) error {
 				fmt.Fprintf(d.log, "scan: record %s: %v\n", path, err)
 				continue
 			}
-			if dec.Action == decision.Skip || !lib.Write {
+			if dec.Action == decision.Skip {
 				continue
 			}
 			if _, _, err := worker.TargetContainer(path); err != nil {
@@ -243,7 +249,12 @@ func (d *Daemon) worker(ctx context.Context, n int) {
 		if paused || !InSchedule(d.cfg.Encoder.Schedule, time.Now()) {
 			continue
 		}
-		job, err := d.store.Claim(time.Now())
+		// Claim treats an empty filter as "any library". Observe-only mode must
+		// leave candidates pending, not execute and withhold them.
+		if len(d.writable) == 0 {
+			continue
+		}
+		job, err := d.store.Claim(time.Now(), d.writable...)
 		if err != nil {
 			fmt.Fprintf(d.log, "worker %d: claim: %v\n", n, err)
 			continue

@@ -102,9 +102,13 @@ lessarr write anything. Start with `config.example.toml`.
 
 `run` is the Tdarr replacement: a polling scan (because CIFS does not deliver
 inotify events), a durable SQLite queue, one worker, retries, pause/resume and a
-status page at `/`. A library with `write = false` is still scanned and its
-decisions are visible in the dashboard, but nothing is queued for replacement.
-The queue survives restarts; jobs that were running are returned to `pending`.
+status page at `/`. Candidates are queued even when a library has
+`write = false`; the worker simply refuses to claim jobs from non-writable
+libraries, so the queue is fully inspectable before writes are enabled. The
+`/files` page lists every decision with action, reason, size, and queue state,
+with filters for library, action, queued/running/not-queued, and path. The queue
+survives restarts; interrupted jobs return to `pending`, and withheld jobs are
+re-queued rather than discarded.
 
 `selftest` is the first thing to run on a new machine. It does not assume the
 hardware works — it loads the driver, runs a short synthetic encode through each

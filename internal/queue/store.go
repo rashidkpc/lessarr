@@ -58,6 +58,21 @@ type File struct {
 	CheckedAt time.Time
 }
 
+type FileQuery struct {
+	Library string
+	Action  string
+	Queue   string // pending | running | none
+	Search  string
+	Limit   int
+	Offset  int
+}
+
+type FileRow struct {
+	File
+	JobID    int64
+	JobState string
+}
+
 type Counts struct {
 	Pending  int
 	Running  int
@@ -191,18 +206,31 @@ func (s *Store) Enqueue(j Job) (bool, error) {
 	return n > 0, err
 }
 
-func (s *Store) Claim(now time.Time) (*Job, error) {
+// Claim takes the oldest ready job. When writable names are supplied, jobs for
+// other libraries remain pending: observe-only libraries stay visible in the
+// queue without being executed or discarded.
+func (s *Store) Claim(now time.Time, writable ...string) (*Job, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
 
+	query := `SELECT id, path, library, state, action, codec, reason, size_before, size_after,
+		attempts, error, backup, created_at, updated_at, started_at, finished_at
+		FROM jobs WHERE state = 'pending' AND next_attempt_at <= ?`
+	args := []any{now.Unix()}
+	if len(writable) > 0 {
+		query += ` AND library IN (` + placeholders(len(writable)) + `)`
+		for _, name := range writable {
+			args = append(args, name)
+		}
+	}
+	query += ` ORDER BY id LIMIT 1`
+
 	var j Job
 	var created, updated, started, finished int64
-	err = tx.QueryRow(`SELECT id, path, library, state, action, codec, reason, size_before, size_after,
-		attempts, error, backup, created_at, updated_at, started_at, finished_at
-		FROM jobs WHERE state = 'pending' AND next_attempt_at <= ? ORDER BY id LIMIT 1`, now.Unix()).
+	err = tx.QueryRow(query, args...).
 		Scan(&j.ID, &j.Path, &j.Library, &j.State, &j.Action, &j.Codec, &j.Reason, &j.SizeBefore, &j.SizeAfter,
 			&j.Attempts, &j.Error, &j.Backup, &created, &updated, &started, &finished)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -288,6 +316,83 @@ func (s *Store) Counts() (Counts, error) {
 		return c, err
 	}
 	return c, nil
+}
+
+// Files returns the latest decision per file, joined with any active job.
+func (s *Store) Files(q FileQuery) ([]FileRow, int, error) {
+	if q.Limit <= 0 {
+		q.Limit = 100
+	}
+	if q.Limit > 500 {
+		q.Limit = 500
+	}
+	if q.Offset < 0 {
+		q.Offset = 0
+	}
+	where, args := fileWhere(q)
+	var total int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM files f
+		LEFT JOIN jobs j ON j.path = f.path AND j.state IN ('pending','running')`+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	listArgs := append(append([]any(nil), args...), q.Limit, q.Offset)
+	rows, err := s.db.Query(`SELECT f.path, f.library, f.size, f.mtime, f.action, f.codes, f.reason, f.codec, f.checked_at,
+		COALESCE(j.id, 0), COALESCE(j.state, '')
+		FROM files f
+		LEFT JOIN jobs j ON j.path = f.path AND j.state IN ('pending','running')`+where+`
+		ORDER BY f.size DESC, f.path LIMIT ? OFFSET ?`, listArgs...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var out []FileRow
+	for rows.Next() {
+		var row FileRow
+		var mtime, checked int64
+		if err := rows.Scan(&row.Path, &row.Library, &row.Size, &mtime, &row.Action, &row.Codes,
+			&row.Reason, &row.Codec, &checked, &row.JobID, &row.JobState); err != nil {
+			return nil, 0, err
+		}
+		row.MTime = time.Unix(mtime, 0)
+		row.CheckedAt = time.Unix(checked, 0)
+		out = append(out, row)
+	}
+	return out, total, rows.Err()
+}
+
+func placeholders(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
+}
+
+func fileWhere(q FileQuery) (string, []any) {
+	var clauses []string
+	var args []any
+	if q.Library != "" {
+		clauses = append(clauses, "f.library = ?")
+		args = append(args, q.Library)
+	}
+	if q.Action != "" {
+		clauses = append(clauses, "f.action = ?")
+		args = append(args, q.Action)
+	}
+	switch q.Queue {
+	case "pending", "running":
+		clauses = append(clauses, "j.state = ?")
+		args = append(args, q.Queue)
+	case "none":
+		clauses = append(clauses, "j.id IS NULL")
+	}
+	if q.Search != "" {
+		clauses = append(clauses, "f.path LIKE ?")
+		args = append(args, "%"+q.Search+"%")
+	}
+	if len(clauses) == 0 {
+		return "", args
+	}
+	return " WHERE " + strings.Join(clauses, " AND "), args
 }
 
 func (s *Store) FilesSummary() (map[string]Summary, error) {
@@ -394,8 +499,10 @@ func (s *Store) SetPaused(paused bool) error {
 	return err
 }
 
-// ResetRunning recovers jobs left running by an unclean shutdown.
-func (s *Store) ResetRunning() error {
-	_, err := s.db.Exec(`UPDATE jobs SET state='pending', updated_at=? WHERE state='running'`, time.Now().Unix())
+// ResetInterrupted recovers jobs left running by an unclean shutdown and puts
+// previously withheld jobs back in the queue. A withheld job was never
+// processed, so it belongs in front of the operator while writes are disabled.
+func (s *Store) ResetInterrupted() error {
+	_, err := s.db.Exec(`UPDATE jobs SET state='pending', updated_at=? WHERE state IN ('running','withheld')`, time.Now().Unix())
 	return err
 }

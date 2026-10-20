@@ -109,6 +109,66 @@ func TestFailRequeuesThenStops(t *testing.T) {
 	}
 }
 
+func TestClaimOnlyTakesWritableLibraries(t *testing.T) {
+	s := openTest(t)
+	if _, err := s.Enqueue(Job{Path: "/media/tv.mkv", Library: "TV", Action: "transcode"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Enqueue(Job{Path: "/media/movie.mkv", Library: "Movies", Action: "transcode"}); err != nil {
+		t.Fatal(err)
+	}
+	if job, err := s.Claim(time.Now(), "Movies"); err != nil || job == nil || job.Library != "Movies" {
+		t.Fatalf("Claim(writable Movies) = %+v, %v", job, err)
+	}
+	if job, err := s.Claim(time.Now(), "Movies"); err != nil || job != nil {
+		t.Fatalf("second Claim = %+v, %v; want none", job, err)
+	}
+	// The observe-only TV job is still pending and visible in the counters.
+	counts, err := s.Counts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Pending != 1 || counts.Running != 1 {
+		t.Fatalf("counts = %+v", counts)
+	}
+}
+
+func TestFilesJoinActiveJobAndFilter(t *testing.T) {
+	s := openTest(t)
+	for _, f := range []File{
+		{Path: "/media/tv/ep1.mkv", Library: "TV", Size: 100, Action: "transcode", Reason: "h264", CheckedAt: time.Now()},
+		{Path: "/media/tv/ep2.mkv", Library: "TV", Size: 200, Action: "skip", Reason: "compliant", CheckedAt: time.Now()},
+		{Path: "/media/movies/film.mkv", Library: "Movies", Size: 300, Action: "remux", Reason: "audio", CheckedAt: time.Now()},
+	} {
+		if err := s.PutFile(f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.Enqueue(Job{Path: "/media/tv/ep1.mkv", Library: "TV", Action: "transcode"}); err != nil {
+		t.Fatal(err)
+	}
+	rows, total, err := s.Files(FileQuery{Library: "TV", Action: "transcode"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 || len(rows) != 1 || rows[0].JobState != "pending" || rows[0].JobID == 0 {
+		t.Fatalf("Files() = %+v, total %d", rows, total)
+	}
+	rows, total, err = s.Files(FileQuery{Search: "film"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 || len(rows) != 1 || rows[0].Path != "/media/movies/film.mkv" {
+		t.Fatalf("search Files() = %+v, total %d", rows, total)
+	}
+	if _, total, err = s.Files(FileQuery{Queue: "pending"}); err != nil || total != 1 {
+		t.Fatalf("pending queue total = %d, err %v", total, err)
+	}
+	if _, total, err = s.Files(FileQuery{Queue: "none"}); err != nil || total != 2 {
+		t.Fatalf("not-queued total = %d, err %v", total, err)
+	}
+}
+
 func TestPauseAndResetRunning(t *testing.T) {
 	s := openTest(t)
 	if paused, err := s.Paused(); err != nil || paused {
@@ -126,7 +186,7 @@ func TestPauseAndResetRunning(t *testing.T) {
 	if _, err := s.Claim(time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ResetRunning(); err != nil {
+	if err := s.ResetInterrupted(); err != nil {
 		t.Fatal(err)
 	}
 	if current, err := s.Current(); err != nil || current != nil {

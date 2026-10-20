@@ -57,6 +57,30 @@ func TestStatusJSON(t *testing.T) {
 	}
 }
 
+func TestFilesPageShowsQueuedCandidate(t *testing.T) {
+	s := testServer(t)
+	path := "/media/movies/Example.mkv"
+	if err := s.store.PutFile(queue.File{Path: path, Library: "Movies", Size: 1234,
+		Action: "transcode", Codes: "codec_gap", Reason: "h264 video", Codec: "h264"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.Enqueue(queue.Job{Path: path, Library: "Movies", Action: "transcode"}); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/files?action=transcode", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	for _, want := range []string{"Example.mkv", "pending", "observe only", "candidate job"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("files page missing %q", want)
+		}
+	}
+}
+
 func TestPauseEndpoint(t *testing.T) {
 	s := testServer(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/pause", nil)
