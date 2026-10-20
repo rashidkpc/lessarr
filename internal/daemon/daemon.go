@@ -188,6 +188,10 @@ func (d *Daemon) sweep(ctx context.Context, force bool) error {
 				fmt.Fprintf(d.log, "scan: stat %s: %v\n", path, err)
 				continue
 			}
+			if !settled(fi.ModTime(), lib, time.Now()) {
+				// Sonarr/nzbget may still be moving or renaming this file.
+				continue
+			}
 			if !force {
 				old, ok, err := d.store.File(path)
 				if err == nil && ok && old.Size == fi.Size() && old.MTime.Unix() == fi.ModTime().Unix() &&
@@ -453,6 +457,15 @@ func (d *Daemon) currentProgress() *web.Progress {
 	}
 	copy := d.progress
 	return &copy
+}
+
+// settled reports whether a file has been untouched long enough to process.
+// Importers commonly move/rename files for several minutes after download.
+func settled(mtime time.Time, lib config.Library, now time.Time) bool {
+	if lib.SkipIfNewerThan <= 0 {
+		return true
+	}
+	return now.Sub(mtime) >= lib.SkipIfNewerThan.Std()
 }
 
 func humanBytes(n int64) string {
