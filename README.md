@@ -124,6 +124,12 @@ attributes the size change to video, audio, subtitles, and container overhead.
 It also samples SSIM against the original. Results are stored on the job and
 shown on its detail page.
 
+Every successful transcode also generates five split-frame comparison images
+(left original, right new) under `/state/comparisons/<job-id>/`.
+They are linked from the job page, and startup backfills existing transcodes
+whose originals are still in trash. Remuxes are skipped because the video is
+unchanged. Comparison files do not yet have a retention cap.
+
 `selftest` is the first thing to run on a new machine. It does not assume the
 hardware works — it loads the driver, runs a short synthetic encode through each
 backend, decode-verifies the result, and reports the throughput. It also flags
