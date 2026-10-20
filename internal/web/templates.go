@@ -276,6 +276,31 @@ const jobHTML = `{{define "job"}}{{template "head"}}
 {{if .Backup}}<tr><th>Original</th><td style="word-break:break-all"><code>{{.Backup}}</code></td></tr>{{end}}
 </table>
 
+{{if .Analysis}}
+<h2>Savings breakdown</h2>
+<table>
+<tr><th>Part</th><th>Before</th><th>After</th><th>Saved</th></tr>
+<tr><td>Video</td><td>{{bytes .Analysis.Video.Before}}</td><td>{{bytes .Analysis.Video.After}}</td><td>{{sbytes .Analysis.Video.Saved}}</td></tr>
+<tr><td>Audio</td><td>{{bytes .Analysis.Audio.Before}}</td><td>{{bytes .Analysis.Audio.After}}</td><td>{{sbytes .Analysis.Audio.Saved}}</td></tr>
+<tr><td>Subtitles</td><td>{{bytes .Analysis.Subtitles.Before}}</td><td>{{bytes .Analysis.Subtitles.After}}</td><td>{{sbytes .Analysis.Subtitles.Saved}}</td></tr>
+<tr><td>Container / other</td><td>{{bytes .Analysis.Other.Before}}</td><td>{{bytes .Analysis.Other.After}}</td><td>{{sbytes .Analysis.Other.Saved}}</td></tr>
+<tr><th>Total</th><th>{{bytes .Analysis.Total.Before}}</th><th>{{bytes .Analysis.Total.After}}</th><th>{{sbytes .Analysis.Total.Saved}}</th></tr>
+</table>
+<p class="muted">Measured from packet payload sizes. Container/other includes mux overhead, metadata, and attachments.</p>
+
+{{if .Analysis.SSIM}}
+<h2>Quality (sampled SSIM)</h2>
+<table>
+<tr><th>At</th><th>SSIM</th></tr>
+{{range .Analysis.SSIM}}<tr><td>{{printf "%.0f" .AtSeconds}}s</td><td>{{printf "%.4f" .SSIM}}</td></tr>{{end}}
+</table>
+<p class="muted">Compared against the retained original; higher is better.</p>
+{{end}}
+{{if .Analysis.SSIMError}}<p class="muted">SSIM unavailable: {{.Analysis.SSIMError}}</p>{{end}}
+{{else}}
+<p class="muted">No savings analysis stored yet. Run <code>lessarr analyze --config FILE {{.ID}}</code>.</p>
+{{end}}
+
 <h2>Decision</h2>
 <div class="card" style="white-space:pre-wrap">{{.Reason}}</div>
 

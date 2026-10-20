@@ -80,8 +80,13 @@ func TestJobPage(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d", w.Code)
 	}
+	if err := s.store.SaveAnalysis(job.ID, `{"video":{"before":1000,"after":500,"saved":500},"total":{"before":1000,"after":500,"saved":500}}`); err != nil {
+		t.Fatal(err)
+	}
+	w = httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/jobs/"+strconv.FormatInt(job.ID, 10), nil))
 	body := w.Body.String()
-	for _, want := range []string{"Example.mkv", "Decision", "h264 video", "running"} {
+	for _, want := range []string{"Example.mkv", "Decision", "h264 video", "running", "Savings breakdown"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("job page missing %q", want)
 		}

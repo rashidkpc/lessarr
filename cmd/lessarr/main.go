@@ -15,11 +15,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
+	"github.com/rashidkpc/lessarr/internal/analysis"
 	"github.com/rashidkpc/lessarr/internal/calibrate"
 	"github.com/rashidkpc/lessarr/internal/config"
 	"github.com/rashidkpc/lessarr/internal/daemon"
@@ -59,6 +61,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdPause(args[1:], stdout, stderr, true)
 	case "resume":
 		return cmdPause(args[1:], stdout, stderr, false)
+	case "analyze":
+		return cmdAnalyze(ctx, args[1:], stdout, stderr)
 	case "selftest":
 		return cmdSelftest(ctx, args[1:], stdout, stderr)
 	case "once":
@@ -83,6 +87,7 @@ Usage:
   lessarr run [--config FILE] [--once]
   lessarr status [--config FILE]
   lessarr pause|resume [--config FILE]
+  lessarr analyze [--config FILE] <job-id>
   lessarr probe [--config FILE] [--accurate] [--backend NAME] [--json] <file>
   lessarr stats [--config FILE] [--top N] [--workers N] [--reasons] <path>
   lessarr selftest [--config FILE] [--device PATH] [--seconds N] [path]
@@ -94,6 +99,7 @@ Usage:
 run      scan libraries, queue work, encode, and serve the status page.
 status   print queue and library counters from the database.
 pause    stop claiming new jobs; resume restarts them.
+analyze  measure a completed job's video/audio/subtitle savings and sampled SSIM.
 probe    explain what lessarr would do with one file, and why. Writes nothing.
 stats    walk a path, decide every file, report the projected outcome.
 selftest check this host: GPU, drivers, encoders, permissions. Writes nothing
@@ -309,6 +315,110 @@ func actionCounts(actions map[string]int) string {
 		parts = append(parts, fmt.Sprintf("%s=%d", k, actions[k]))
 	}
 	return strings.Join(parts, " ")
+}
+
+func cmdAnalyze(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("analyze", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	cfgPath := fs.String("config", "", "config file")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintln(stderr, "lessarr analyze: exactly one job ID is required")
+		return 2
+	}
+	id, err := strconv.ParseInt(fs.Arg(0), 10, 64)
+	if err != nil || id <= 0 {
+		fmt.Fprintln(stderr, "lessarr analyze: invalid job ID")
+		return 2
+	}
+	path, err := config.Find(*cfgPath)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	store, err := queue.Open(cfg.Server.DB)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	defer store.Close()
+	job, err := store.Job(id)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	if job == nil {
+		fmt.Fprintf(stderr, "lessarr analyze: job %d not found\n", id)
+		return 1
+	}
+	if job.Backup == "" {
+		fmt.Fprintln(stderr, "lessarr analyze: this job has no retained original")
+		return 1
+	}
+	if _, err := os.Stat(job.Backup); err != nil {
+		fmt.Fprintf(stderr, "lessarr analyze: original is no longer available: %v\n", err)
+		return 1
+	}
+	p := probe.New()
+	sourceInfo, err := p.Probe(ctx, job.Backup)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	outputInfo, err := p.Probe(ctx, job.Path)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr:", err)
+		return 1
+	}
+	actx, cancel := context.WithTimeout(ctx, 30*time.Minute)
+	defer cancel()
+	result, err := analysis.Compare(actx, p, ffmpeg.NewRunner(), job.Backup, job.Path, sourceInfo, outputInfo)
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr analyze:", err)
+		return 1
+	}
+	data, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		fmt.Fprintln(stderr, "lessarr analyze:", err)
+		return 1
+	}
+	if err := store.SaveAnalysis(id, string(data)); err != nil {
+		fmt.Fprintln(stderr, "lessarr analyze: save:", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "job %d: %s\n\n", id, job.Path)
+	fmt.Fprintf(stdout, "%-14s %12s %12s %12s\n", "part", "before", "after", "saved")
+	printAnalysisRow(stdout, "video", result.Video)
+	printAnalysisRow(stdout, "audio", result.Audio)
+	printAnalysisRow(stdout, "subtitles", result.Subtitles)
+	printAnalysisRow(stdout, "container/other", result.Other)
+	printAnalysisRow(stdout, "total", result.Total)
+	for _, sample := range result.SSIM {
+		fmt.Fprintf(stdout, "ssim at %3.0fs: %.4f\n", sample.AtSeconds, sample.SSIM)
+	}
+	if result.SSIMError != "" {
+		fmt.Fprintln(stdout, "ssim warning:", result.SSIMError)
+	}
+	return 0
+}
+
+func printAnalysisRow(w io.Writer, label string, totals analysis.Totals) {
+	fmt.Fprintf(w, "%-14s %12s %12s %12s\n", label,
+		humanBytes(totals.Before), humanBytes(totals.After), signedHumanBytes(totals.Saved))
+}
+
+func signedHumanBytes(n int64) string {
+	if n < 0 {
+		return "-" + humanBytes(-n)
+	}
+	return humanBytes(n)
 }
 
 func cmdProbe(ctx context.Context, args []string, stdout, stderr io.Writer) int {

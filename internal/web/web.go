@@ -52,10 +52,11 @@ func New(cfg *config.Config, store *queue.Store, version string, progress func()
 	return &Server{
 		cfg: cfg, store: store, version: version, progress: progress,
 		templates: template.Must(template.New("root").Funcs(template.FuncMap{
-			"bytes": humanBytes,
-			"when":  humanWhen,
-			"saved": savedPercent,
-			"dur":   humanDuration,
+			"bytes":  humanBytes,
+			"when":   humanWhen,
+			"saved":  savedPercent,
+			"dur":    humanDuration,
+			"sbytes": signedBytes,
 		}).Parse(sharedHTML + dashboardHTML + pageHTML + filesHTML + jobHTML)),
 	}
 }
@@ -232,6 +233,13 @@ func humanBytes(n int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+}
+
+func signedBytes(n int64) string {
+	if n < 0 {
+		return "-" + humanBytes(-n)
+	}
+	return humanBytes(n)
 }
 
 func humanWhen(t time.Time) string {

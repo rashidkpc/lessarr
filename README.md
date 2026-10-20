@@ -68,6 +68,9 @@ lessarr status --config config.toml
 lessarr pause  --config config.toml
 lessarr resume --config config.toml
 
+# Attribute a completed job's savings and measure sampled SSIM.
+lessarr analyze --config config.toml 42
+
 # What would happen to one file, and the exact command that would run.
 lessarr probe /media/movies/Example.mkv
 
@@ -115,6 +118,11 @@ Validation defaults to `sample`: five 20-second decodes across the output, plus
 a full packet scan for remuxes. Set `validation = "full"` on a library to decode
 every frame instead. The UI shows each validation step and full-decode progress
 when that mode is used.
+
+`analyze <job-id>` packet-scans the retained original and the replacement, then
+attributes the size change to video, audio, subtitles, and container overhead.
+It also samples SSIM against the original. Results are stored on the job and
+shown on its detail page.
 
 `selftest` is the first thing to run on a new machine. It does not assume the
 hardware works — it loads the driver, runs a short synthetic encode through each

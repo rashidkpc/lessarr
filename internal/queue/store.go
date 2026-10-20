@@ -154,6 +154,11 @@ func (s *Store) migrate() error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS jobs_active_path ON jobs(path) WHERE state IN ('pending','running')`,
 		`CREATE INDEX IF NOT EXISTS jobs_state ON jobs(state, id)`,
 		`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS job_analysis (
+			job_id INTEGER PRIMARY KEY,
+			data TEXT NOT NULL,
+			created_at INTEGER NOT NULL
+		)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -541,6 +546,22 @@ func scanJob(row scanner) (Job, error) {
 		j.FinishedAt = time.Unix(finished, 0)
 	}
 	return j, nil
+}
+
+func (s *Store) SaveAnalysis(jobID int64, data string) error {
+	_, err := s.db.Exec(`INSERT INTO job_analysis (job_id, data, created_at) VALUES (?, ?, ?)
+		ON CONFLICT(job_id) DO UPDATE SET data=excluded.data, created_at=excluded.created_at`,
+		jobID, data, time.Now().Unix())
+	return err
+}
+
+func (s *Store) Analysis(jobID int64) (string, error) {
+	var data string
+	err := s.db.QueryRow(`SELECT data FROM job_analysis WHERE job_id=?`, jobID).Scan(&data)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return data, err
 }
 
 func (s *Store) Paused() (bool, error) {

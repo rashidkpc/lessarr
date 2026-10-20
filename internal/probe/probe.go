@@ -451,6 +451,42 @@ func (p Prober) SampleVideoBitrate(ctx context.Context, path string, duration fl
 	return int64(float64(bytes) * 8 / window), nil
 }
 
+// PacketBytes sums packet payload bytes per stream. It demuxes the file but
+// does not decode frames, so it is much cheaper than a full decode and still
+// gives exact stream sizes for a savings breakdown.
+func (p Prober) PacketBytes(ctx context.Context, path string) (map[int]int64, error) {
+	cmd := exec.CommandContext(ctx, p.bin(),
+		"-v", "error",
+		"-show_entries", "packet=stream_index,size",
+		"-of", "csv=p=0",
+		path,
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("ffprobe packets %s: %s", path, strings.TrimSpace(string(ee.Stderr)))
+		}
+		return nil, fmt.Errorf("ffprobe packets %s: %w", path, err)
+	}
+	sums := map[int]int64{}
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Split(strings.TrimSpace(line), ",")
+		if len(fields) != 2 {
+			continue
+		}
+		idx, err1 := strconv.Atoi(fields[0])
+		size, err2 := strconv.ParseInt(fields[1], 10, 64)
+		if err1 != nil || err2 != nil {
+			idx, err1 = strconv.Atoi(fields[1])
+			size, err2 = strconv.ParseInt(fields[0], 10, 64)
+		}
+		if err1 == nil && err2 == nil {
+			sums[idx] += size
+		}
+	}
+	return sums, nil
+}
+
 func (p Prober) bin() string {
 	if p.FFProbe != "" {
 		return p.FFProbe
