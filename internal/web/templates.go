@@ -44,44 +44,12 @@ const pageHTML = `{{define "page"}}{{template "head"}}
 {{template "nav"}}
 <div class="muted">
 {{if .Paused}}<span class="badge warn">paused</span>{{else}}<span class="badge ok">running</span>{{end}}
-{{if .Scan}}<span class="badge warn">scanning since {{when .Scan.Since}}</span>{{end}}
-{{if .Schedule}}schedule <code>{{.Schedule}}</code>{{end}}
-&nbsp; backend <code>{{.Backend}}</code> on <code>{{.Device}}</code>
-&nbsp; scan every {{.ScanEvery}}
-</div>
-<div style="display:flex;gap:.5rem;margin-top:.8rem">
-<form method="post" action="{{if .Paused}}/api/resume{{else}}/api/pause{{end}}">
-<button type="submit">{{if .Paused}}Resume{{else}}Pause{{end}}</button>
-</form>
-<form method="post" action="/api/scan">
-<button type="submit">Scan now</button>
-</form>
-</div>
-{{if .LastScan}}
-<div class="muted" style="margin-top:.5rem">
-last scan {{when .LastScan.At}} · {{.LastScan.Files}} files · {{.LastScan.Queued}} queued · took {{dur .LastScan.Elapsed}}
-</div>
-{{end}}
-
-{{if and (gt .Counts.Pending 0) (not .WritesEnabled)}}
-<div class="card notice">
-<strong>{{.Counts.Pending}} job(s) queued.</strong>
-Writes are disabled, so the worker will not claim them. <a href="/files?action=transcode">Review the files</a>.
-</div>
-{{end}}
-
-<h2>Queue</h2>
-<div class="grid">
-<a class="card" href="/files?queue=pending" style="color:inherit"><span class="muted">pending</span><b>{{.Counts.Pending}}</b></a>
-<div class="card"><span class="muted">running</span><b>{{.Counts.Running}}</b></div>
-<div class="card"><span class="muted">done</span><b>{{.Counts.Done}}</b></div>
-<div class="card"><span class="muted">failed</span><b>{{.Counts.Failed}}</b></div>
-<div class="card"><span class="muted">skipped</span><b>{{.Counts.Skipped}}</b></div>
-<div class="card"><span class="muted">reclaimed</span><b>{{bytes .Counts.Saved}}</b></div>
+{{if .WritesEnabled}}<span class="badge ok">writes enabled</span>{{else}}<span class="badge">observe only</span>{{end}}
+&nbsp; {{.Counts.Pending}} queued · {{.Counts.Done}} done{{if .Counts.Failed}} · {{.Counts.Failed}} failed{{end}}
 </div>
 
+<h2>Running</h2>
 {{if .Current}}
-<h2>Current job</h2>
 <div class="card">
 <div><code>{{.Current.Path}}</code></div>
 <div class="muted">{{.Current.Action}} · {{.Current.Library}} · started {{when .Current.StartedAt}}</div>
@@ -98,36 +66,55 @@ Writes are disabled, so the worker will not claim them. <a href="/files?action=t
 </div>
 {{end}}
 </div>
+{{else}}
+<div class="card muted">Nothing is running.</div>
 {{end}}
 
-<h2>Libraries <a class="muted" style="font-size:.8rem" href="/files">view files</a></h2>
+<h2>Queued <span class="muted">{{.Counts.Pending}}</span></h2>
 <table>
-<tr><th>Library</th><th>Mode</th><th>Files</th><th>Size</th><th>Actions</th></tr>
-{{range .Libraries}}
+<tr><th>File</th><th>Library</th><th>Action</th><th>Size</th></tr>
+{{range .Queued}}
 <tr>
-<td><div>{{.Name}}</div><div class="muted"><code>{{.Path}}</code></div></td>
-<td>{{if .Write}}<span class="badge ok">write</span>{{else}}<span class="badge">observe</span>{{end}}</td>
-<td>{{.Files}}</td><td>{{bytes .Bytes}}</td>
-<td>{{range $action, $n := .Actions}}<span class="badge">{{$action}} {{$n}}</span>{{end}}</td>
-</tr>
-{{end}}
-</table>
-
-<h2>Recent jobs</h2>
-<table>
-<tr><th>#</th><th>File</th><th>State</th><th>Size</th><th>When</th></tr>
-{{range .Recent}}
-<tr>
-<td>{{.ID}}</td>
-<td><div><code>{{.Path}}</code></div><div class="muted">{{.Reason}}{{if .Error}} · <span class="err">{{.Error}}</span>{{end}}</div></td>
-<td><span class="badge {{if eq .StateName "done"}}ok{{else if eq .StateName "failed"}}err{{else if eq .StateName "running"}}warn{{end}}">{{.StateName}}</span></td>
-<td>{{bytes .SizeBefore}}{{if and (eq .StateName "done") (gt .SizeAfter 0)}} → {{bytes .SizeAfter}} <span class="muted">({{saved .SizeBefore .SizeAfter}})</span>{{else if eq .StateName "running"}} <span class="muted">in progress</span>{{else if eq .StateName "pending"}} <span class="muted">queued</span>{{end}}</td>
-<td class="muted">{{when .UpdatedAt}}</td>
+<td><code>{{.Path}}</code></td>
+<td>{{.Library}}</td>
+<td><span class="badge">{{.Action}}</span></td>
+<td>{{bytes .SizeBefore}}</td>
 </tr>
 {{else}}
-<tr><td colspan="5" class="muted">No jobs yet.</td></tr>
+<tr><td colspan="4" class="muted">Queue is empty.</td></tr>
 {{end}}
 </table>
+{{if gt .Counts.Pending (len .Queued)}}<div class="muted"><a href="/files?queue=pending">View all queued files</a></div>{{end}}
+
+<h2>Done</h2>
+<table>
+<tr><th>File</th><th>Action</th><th>Size</th><th>When</th></tr>
+{{range .Done}}
+<tr>
+<td><code>{{.Path}}</code></td>
+<td>{{.Action}}</td>
+<td>{{bytes .SizeBefore}}{{if gt .SizeAfter 0}} → {{bytes .SizeAfter}} <span class="muted">({{saved .SizeBefore .SizeAfter}})</span>{{end}}</td>
+<td class="muted">{{when .FinishedAt}}</td>
+</tr>
+{{else}}
+<tr><td colspan="4" class="muted">Nothing completed yet.</td></tr>
+{{end}}
+</table>
+
+{{if .Failed}}
+<h2>Failed</h2>
+<table>
+<tr><th>File</th><th>Error</th><th>When</th></tr>
+{{range .Failed}}
+<tr>
+<td><code>{{.Path}}</code></td>
+<td><span class="err">{{.Error}}</span></td>
+<td class="muted">{{when .UpdatedAt}}</td>
+</tr>
+{{end}}
+</table>
+{{end}}
+
 <script>setTimeout(function () { location.reload(); }, 5000);</script>
 {{end}}`
 

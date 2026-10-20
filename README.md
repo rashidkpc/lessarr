@@ -101,8 +101,9 @@ projected size change is. That is the number to argue with before letting
 lessarr write anything. Start with `config.example.toml`.
 
 `run` is the Tdarr replacement: a polling scan (because CIFS does not deliver
-inotify events), a durable SQLite queue, one worker, retries, pause/resume and a
-status page at `/`. Candidates are queued even when a library has
+inotify events), a durable SQLite queue, one worker, retries, and a read-only
+status page at `/` showing what is running, queued, completed, or failed.
+Candidates are queued even when a library has
 `write = false`; the worker simply refuses to claim jobs from non-writable
 libraries, so the queue is fully inspectable before writes are enabled. The
 `/files` page lists every decision with action, reason, size, and queue state,

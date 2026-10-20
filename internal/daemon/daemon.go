@@ -29,6 +29,7 @@ const (
 	rescanAfter  = 6 * time.Hour
 	workerPoll   = 2 * time.Second
 	scanProgress = 100
+	scanInterval = 5 * time.Minute
 )
 
 type Options struct {
@@ -43,21 +44,17 @@ type Options struct {
 }
 
 type Daemon struct {
-	cfg         *config.Config
-	store       *queue.Store
-	runner      ffmpeg.Runner
-	prober      probe.Prober
-	backend     ffmpeg.Backend
-	hwDecode    map[string]bool
-	writable    []string
-	log         io.Writer
-	policy      decision.Policy
-	progressMu  sync.Mutex
-	progress    web.Progress
-	scanNow     chan struct{}
-	scanMu      sync.Mutex
-	scanning    bool
-	scanStarted time.Time
+	cfg        *config.Config
+	store      *queue.Store
+	runner     ffmpeg.Runner
+	prober     probe.Prober
+	backend    ffmpeg.Backend
+	hwDecode   map[string]bool
+	writable   []string
+	log        io.Writer
+	policy     decision.Policy
+	progressMu sync.Mutex
+	progress   web.Progress
 }
 
 // Run blocks until ctx is cancelled. With Once set it performs a single scan
@@ -89,7 +86,6 @@ func Run(ctx context.Context, o Options) error {
 			d.writable = append(d.writable, lib.Name)
 		}
 	}
-	d.scanNow = make(chan struct{}, 1)
 	if o.Once {
 		return d.sweep(ctx, true)
 	}
@@ -109,8 +105,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 	fmt.Fprintf(d.log, "backend: %s (%s)\n", selection.Backend.Name, selection.Reason)
 
-	handler := web.New(d.cfg, d.store, selection.Backend.Name, o.Version,
-		d.currentProgress, d.currentScan, d.triggerScan)
+	handler := web.New(d.cfg, d.store, o.Version, d.currentProgress)
 	server := &http.Server{
 		Addr:              d.cfg.Server.Listen,
 		Handler:           handler,
@@ -148,7 +143,7 @@ func Run(ctx context.Context, o Options) error {
 
 func (d *Daemon) scanLoop(ctx context.Context) {
 	d.runScan(ctx, true)
-	ticker := time.NewTicker(d.cfg.Server.ScanInterval.Std())
+	ticker := time.NewTicker(scanInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -156,42 +151,13 @@ func (d *Daemon) scanLoop(ctx context.Context) {
 			return
 		case <-ticker.C:
 			d.runScan(ctx, false)
-		case <-d.scanNow:
-			d.runScan(ctx, false)
 		}
 	}
 }
 
 func (d *Daemon) runScan(ctx context.Context, force bool) {
-	d.setScanning(true)
-	defer d.setScanning(false)
 	if err := d.sweep(ctx, force); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(d.log, "scan: %v\n", err)
-	}
-}
-
-func (d *Daemon) setScanning(on bool) {
-	d.scanMu.Lock()
-	defer d.scanMu.Unlock()
-	d.scanning = on
-	if on {
-		d.scanStarted = time.Now()
-	}
-}
-
-func (d *Daemon) currentScan() *web.ScanStatus {
-	d.scanMu.Lock()
-	defer d.scanMu.Unlock()
-	if !d.scanning {
-		return nil
-	}
-	return &web.ScanStatus{Scanning: true, Since: d.scanStarted}
-}
-
-func (d *Daemon) triggerScan() {
-	select {
-	case d.scanNow <- struct{}{}:
-	default:
 	}
 }
 
@@ -269,11 +235,6 @@ func (d *Daemon) sweep(ctx context.Context, force bool) error {
 		}
 	}
 	elapsed := time.Since(started)
-	if err := d.store.RecordScan(queue.ScanInfo{
-		At: time.Now(), Files: total, Probed: probed, Queued: queued, Elapsed: elapsed,
-	}); err != nil {
-		fmt.Fprintf(d.log, "scan: record last scan: %v\n", err)
-	}
 	fmt.Fprintf(d.log, "scan complete: %d files, %d probed, %d queued in %s\n",
 		total, probed, queued, elapsed.Round(time.Second))
 	return nil
@@ -291,7 +252,7 @@ func (d *Daemon) worker(ctx context.Context, n int) {
 			fmt.Fprintf(d.log, "worker %d: pause state: %v\n", n, err)
 			continue
 		}
-		if paused || !InSchedule(d.cfg.Encoder.Schedule, time.Now()) {
+		if paused {
 			continue
 		}
 		// Claim treats an empty filter as "any library". Observe-only mode must
@@ -434,31 +395,6 @@ func (d *Daemon) currentProgress() *web.Progress {
 	}
 	copy := d.progress
 	return &copy
-}
-
-// InSchedule reports whether now falls inside "always" or "HH:MM-HH:MM".
-// Windows that cross midnight are supported.
-func InSchedule(schedule string, now time.Time) bool {
-	schedule = strings.TrimSpace(schedule)
-	if schedule == "" || schedule == "always" {
-		return true
-	}
-	parts := strings.Split(schedule, "-")
-	if len(parts) != 2 {
-		return true
-	}
-	start, err1 := time.Parse("15:04", strings.TrimSpace(parts[0]))
-	end, err2 := time.Parse("15:04", strings.TrimSpace(parts[1]))
-	if err1 != nil || err2 != nil {
-		return true
-	}
-	clock := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), 0, 0, now.Location())
-	start = time.Date(now.Year(), now.Month(), now.Day(), start.Hour(), start.Minute(), 0, 0, now.Location())
-	end = time.Date(now.Year(), now.Month(), now.Day(), end.Hour(), end.Minute(), 0, 0, now.Location())
-	if start.Before(end) || start.Equal(end) {
-		return !clock.Before(start) && clock.Before(end)
-	}
-	return !clock.Before(start) || clock.Before(end)
 }
 
 func humanBytes(n int64) string {

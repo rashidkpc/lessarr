@@ -15,19 +15,11 @@ import (
 )
 
 type Server struct {
-	cfg         *config.Config
-	store       *queue.Store
-	backend     string
-	version     string
-	progress    func() *Progress
-	scan        func() *ScanStatus
-	triggerScan func()
-	templates   *template.Template
-}
-
-type ScanStatus struct {
-	Scanning bool
-	Since    time.Time
+	cfg       *config.Config
+	store     *queue.Store
+	version   string
+	progress  func() *Progress
+	templates *template.Template
 }
 
 // Progress is a snapshot of the currently running job's encoder progress.
@@ -44,10 +36,9 @@ type Progress struct {
 	Updated   time.Time
 }
 
-func New(cfg *config.Config, store *queue.Store, backend, version string,
-	progress func() *Progress, scan func() *ScanStatus, triggerScan func()) *Server {
+func New(cfg *config.Config, store *queue.Store, version string, progress func() *Progress) *Server {
 	return &Server{
-		cfg: cfg, store: store, backend: backend, version: version, progress: progress, scan: scan, triggerScan: triggerScan,
+		cfg: cfg, store: store, version: version, progress: progress,
 		templates: template.Must(template.New("root").Funcs(template.FuncMap{
 			"bytes": humanBytes,
 			"when":  humanWhen,
@@ -64,15 +55,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("ok\n"))
 	case r.URL.Path == "/api/status":
 		s.statusJSON(w)
-	case r.URL.Path == "/api/pause" && r.Method == http.MethodPost:
-		s.setPaused(w, r, true)
-	case r.URL.Path == "/api/resume" && r.Method == http.MethodPost:
-		s.setPaused(w, r, false)
-	case r.URL.Path == "/api/scan" && r.Method == http.MethodPost:
-		if s.triggerScan != nil {
-			s.triggerScan()
-		}
-		http.Redirect(w, r, "/", http.StatusSeeOther)
 	case r.URL.Path == "/" && r.Method == http.MethodGet:
 		s.statusPage(w)
 	case r.URL.Path == "/files" && r.Method == http.MethodGet:
@@ -80,14 +62,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
-}
-
-func (s *Server) setPaused(w http.ResponseWriter, r *http.Request, paused bool) {
-	if err := s.store.SetPaused(paused); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (s *Server) statusJSON(w http.ResponseWriter) {
@@ -114,31 +88,16 @@ func (s *Server) statusPage(w http.ResponseWriter) {
 	}
 }
 
-type LibraryStatus struct {
-	Name    string
-	Path    string
-	Write   bool
-	Paused  bool
-	Files   int
-	Bytes   int64
-	Actions map[string]int
-}
-
 type Status struct {
 	Version       string
-	Backend       string
-	Device        string
-	Schedule      string
 	Paused        bool
 	WritesEnabled bool
-	ScanEvery     string
 	Counts        queue.Counts
-	Libraries     []LibraryStatus
 	Current       *queue.Job
 	Progress      *Progress
-	Scan          *ScanStatus
-	LastScan      *queue.ScanInfo
-	Recent        []queue.Job
+	Queued        []queue.Job
+	Done          []queue.Job
+	Failed        []queue.Job
 }
 
 func (s *Server) collect() (Status, error) {
@@ -150,45 +109,43 @@ func (s *Server) collect() (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	files, err := s.store.FilesSummary()
-	if err != nil {
-		return Status{}, err
-	}
 	current, err := s.store.Current()
 	if err != nil {
 		return Status{}, err
 	}
-	recent, err := s.store.Recent(25)
+	queued, err := s.store.ByState(queue.Pending, 25)
 	if err != nil {
 		return Status{}, err
+	}
+	done, err := s.store.ByState(queue.Done, 20)
+	if err != nil {
+		return Status{}, err
+	}
+	failed, err := s.store.ByState(queue.Failed, 10)
+	if err != nil {
+		return Status{}, err
+	}
+	if queued == nil {
+		queued = []queue.Job{}
+	}
+	if done == nil {
+		done = []queue.Job{}
+	}
+	if failed == nil {
+		failed = []queue.Job{}
 	}
 	var progress *Progress
 	if s.progress != nil {
 		progress = s.progress()
 	}
-	lastScan, err := s.store.LastScan()
-	if err != nil {
-		return Status{}, err
-	}
-	var scan *ScanStatus
-	if s.scan != nil {
-		scan = s.scan()
-	}
 	status := Status{
-		Version: s.version, Backend: s.backend, Device: s.cfg.Encoder.Device,
-		Schedule: s.cfg.Encoder.Schedule, Paused: paused,
-		ScanEvery: s.cfg.Server.ScanInterval.Std().String(),
-		Counts:    counts, Current: current, Progress: progress, Scan: scan, LastScan: lastScan, Recent: recent,
+		Version: s.version, Paused: paused, Counts: counts,
+		Current: current, Progress: progress, Queued: queued, Done: done, Failed: failed,
 	}
 	for _, l := range s.cfg.Libraries {
-		ls := LibraryStatus{Name: l.Name, Path: l.Path, Write: l.Write, Paused: paused}
 		if l.Write {
 			status.WritesEnabled = true
 		}
-		if sum, ok := files[l.Name]; ok {
-			ls.Files, ls.Bytes, ls.Actions = sum.Files, sum.Bytes, sum.Actions
-		}
-		status.Libraries = append(status.Libraries, ls)
 	}
 	return status, nil
 }

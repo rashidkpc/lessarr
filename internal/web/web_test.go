@@ -22,7 +22,7 @@ func testServer(t *testing.T) *Server {
 	t.Cleanup(func() { _ = store.Close() })
 	cfg := config.Default()
 	cfg.Libraries = []config.Library{{Name: "Movies", Path: "/media/movies"}}
-	return New(&cfg, store, "vaapi", "test", nil, nil, nil)
+	return New(&cfg, store, "test", nil)
 }
 
 func TestStatusPageRenders(t *testing.T) {
@@ -34,7 +34,7 @@ func TestStatusPageRenders(t *testing.T) {
 		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
 	}
 	body := w.Body.String()
-	for _, want := range []string{"lessarr", "Movies", "observe", "Queue"} {
+	for _, want := range []string{"lessarr", "Running", "Queued", "Done", "observe only"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page missing %q", want)
 		}
@@ -53,7 +53,7 @@ func TestStatusJSON(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&status); err != nil {
 		t.Fatal(err)
 	}
-	if status.Backend != "vaapi" || len(status.Libraries) != 1 {
+	if status.Version != "test" || status.Counts.Pending != 0 {
 		t.Fatalf("unexpected status: %+v", status)
 	}
 }
@@ -97,11 +97,11 @@ func TestProgressAppearsInStatusAndPage(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now()
-	s := New(&cfg, store, "vaapi", "test", func() *Progress {
+	s := New(&cfg, store, "test", func() *Progress {
 		return &Progress{JobID: 7, Phase: "encoding", Percent: 42, Frame: 1234,
 			OutTime: 30 * time.Second, Duration: 2 * time.Minute, Speed: "2.4x",
 			TotalSize: 100 << 20, Started: now, Updated: now}
-	}, nil, nil)
+	})
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
@@ -120,37 +120,5 @@ func TestProgressAppearsInStatusAndPage(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("progress page missing %q", want)
 		}
-	}
-}
-
-func TestScanNowEndpointTriggersScan(t *testing.T) {
-	store, err := queue.Open(filepath.Join(t.TempDir(), "test.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	cfg := config.Default()
-	cfg.Libraries = []config.Library{{Name: "Movies", Path: "/media/movies"}}
-	triggered := false
-	s := New(&cfg, store, "vaapi", "test", nil, nil, func() { triggered = true })
-	req := httptest.NewRequest(http.MethodPost, "/api/scan", nil)
-	w := httptest.NewRecorder()
-	s.ServeHTTP(w, req)
-	if w.Code != http.StatusSeeOther || !triggered {
-		t.Fatalf("scan endpoint status=%d triggered=%v", w.Code, triggered)
-	}
-}
-
-func TestPauseEndpoint(t *testing.T) {
-	s := testServer(t)
-	req := httptest.NewRequest(http.MethodPost, "/api/pause", nil)
-	w := httptest.NewRecorder()
-	s.ServeHTTP(w, req)
-	if w.Code != http.StatusSeeOther {
-		t.Fatalf("status = %d", w.Code)
-	}
-	paused, err := s.store.Paused()
-	if err != nil || !paused {
-		t.Fatalf("Paused = %v, %v", paused, err)
 	}
 }

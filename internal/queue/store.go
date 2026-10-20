@@ -4,7 +4,6 @@ package queue
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -72,14 +71,6 @@ type FileRow struct {
 	File
 	JobID    int64
 	JobState string
-}
-
-type ScanInfo struct {
-	At      time.Time
-	Files   int
-	Probed  int
-	Queued  int
-	Elapsed time.Duration
 }
 
 type Counts struct {
@@ -430,6 +421,34 @@ func (s *Store) FilesSummary() (map[string]Summary, error) {
 	return out, rows.Err()
 }
 
+// ByState returns jobs in one state. Pending jobs are oldest first so the
+// dashboard shows the order they will run; finished jobs are newest first.
+func (s *Store) ByState(state State, limit int) ([]Job, error) {
+	if limit <= 0 {
+		limit = 25
+	}
+	order := "id DESC"
+	if state == Pending || state == Running {
+		order = "id ASC"
+	}
+	rows, err := s.db.Query(`SELECT id, path, library, state, action, codec, reason, size_before, size_after,
+		attempts, error, backup, created_at, updated_at, started_at, finished_at
+		FROM jobs WHERE state = ? ORDER BY `+order+` LIMIT ?`, state, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var jobs []Job
+	for rows.Next() {
+		j, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, j)
+	}
+	return jobs, rows.Err()
+}
+
 func (s *Store) Recent(limit int) ([]Job, error) {
 	rows, err := s.db.Query(`SELECT id, path, library, state, action, codec, reason, size_before, size_after,
 		attempts, error, backup, created_at, updated_at, started_at, finished_at
@@ -486,32 +505,6 @@ func scanJob(row scanner) (Job, error) {
 	return j, nil
 }
 
-func (s *Store) RecordScan(info ScanInfo) error {
-	data, err := json.Marshal(info)
-	if err != nil {
-		return err
-	}
-	_, err = s.db.Exec(`INSERT INTO settings (key, value) VALUES ('last_scan', ?)
-		ON CONFLICT(key) DO UPDATE SET value=excluded.value`, string(data))
-	return err
-}
-
-func (s *Store) LastScan() (*ScanInfo, error) {
-	var value string
-	err := s.db.QueryRow(`SELECT value FROM settings WHERE key='last_scan'`).Scan(&value)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var info ScanInfo
-	if err := json.Unmarshal([]byte(value), &info); err != nil {
-		return nil, err
-	}
-	return &info, nil
-}
-
 func (s *Store) Paused() (bool, error) {
 	var value string
 	err := s.db.QueryRow(`SELECT value FROM settings WHERE key='paused'`).Scan(&value)
@@ -538,6 +531,10 @@ func (s *Store) SetPaused(paused bool) error {
 // previously withheld jobs back in the queue. A withheld job was never
 // processed, so it belongs in front of the operator while writes are disabled.
 func (s *Store) ResetInterrupted() error {
-	_, err := s.db.Exec(`UPDATE jobs SET state='pending', updated_at=? WHERE state IN ('running','withheld')`, time.Now().Unix())
+	_, err := s.db.Exec(`UPDATE jobs SET
+		state='pending',
+		attempts=CASE WHEN state='withheld' THEN 0 WHEN attempts > 0 THEN attempts-1 ELSE 0 END,
+		started_at=0, finished_at=0, next_attempt_at=0, error='', updated_at=?
+		WHERE state IN ('running','withheld')`, time.Now().Unix())
 	return err
 }

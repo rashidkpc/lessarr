@@ -28,10 +28,9 @@ type Config struct {
 }
 
 type Server struct {
-	Listen       string   `toml:"listen"`
-	DB           string   `toml:"db"`
-	LogLevel     string   `toml:"log_level"`
-	ScanInterval Duration `toml:"scan_interval"`
+	Listen   string `toml:"listen"`
+	DB       string `toml:"db"`
+	LogLevel string `toml:"log_level"`
 }
 
 type Encoder struct {
@@ -39,7 +38,6 @@ type Encoder struct {
 	Device   string `toml:"device"`    // e.g. /dev/dri/renderD128
 	Workers  int    `toml:"workers"`   // encoding slots; keep at 1 on weak hardware
 	Nice     int    `toml:"nice"`      // process priority
-	Schedule string `toml:"schedule"`  // "always" or "01:00-08:00"
 	DecideBy string `toml:"decide_by"` // heuristic | sample
 }
 
@@ -112,17 +110,15 @@ func (d Duration) Std() time.Duration { return time.Duration(d) }
 func Default() Config {
 	return Config{
 		Server: Server{
-			Listen:       "0.0.0.0:8585",
-			DB:           "/config/lessarr.db",
-			LogLevel:     "info",
-			ScanInterval: Duration(5 * time.Minute),
+			Listen:   "0.0.0.0:8585",
+			DB:       "/config/lessarr.db",
+			LogLevel: "info",
 		},
 		Encoder: Encoder{
-			Backend:  "auto",
-			Device:   "/dev/dri/renderD128",
-			Workers:  1,
-			Nice:     15,
-			Schedule: "always",
+			Backend: "auto",
+			Device:  "/dev/dri/renderD128",
+			Workers: 1,
+			Nice:    15,
 			// Sampling lands in M1; until then the heuristic is the honest
 			// default rather than pretending to measure.
 			DecideBy: "heuristic",
@@ -230,12 +226,7 @@ func (c *Config) Validate() error {
 	if c.Encoder.Workers < 1 {
 		return fmt.Errorf("encoder.workers: must be >= 1")
 	}
-	if c.Server.ScanInterval.Std() < 10*time.Second {
-		return fmt.Errorf("server.scan_interval: must be at least 10s")
-	}
-	if err := validateSchedule(c.Encoder.Schedule); err != nil {
-		return err
-	}
+
 	if len(c.Libraries) == 0 {
 		return fmt.Errorf("no [[library]] sections defined")
 	}
@@ -280,22 +271,6 @@ func (c *Config) Validate() error {
 		case "skip", "passthrough":
 		default:
 			return fmt.Errorf("library %q: hdr must be skip or passthrough", l.Name)
-		}
-	}
-	return nil
-}
-
-func validateSchedule(s string) error {
-	if s == "" || s == "always" {
-		return nil
-	}
-	parts := strings.Split(s, "-")
-	if len(parts) != 2 {
-		return fmt.Errorf("encoder.schedule: expected \"always\" or \"HH:MM-HH:MM\"")
-	}
-	for _, p := range parts {
-		if _, err := time.Parse("15:04", strings.TrimSpace(p)); err != nil {
-			return fmt.Errorf("encoder.schedule: %q is not HH:MM", p)
 		}
 	}
 	return nil

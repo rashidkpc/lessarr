@@ -134,21 +134,6 @@ listen = "0.0.0.0:1234"
 	}
 }
 
-func TestScheduleValidation(t *testing.T) {
-	ok := []string{"always", "", "01:00-08:00"}
-	for _, s := range ok {
-		if err := validateSchedule(s); err != nil {
-			t.Errorf("validateSchedule(%q) = %v, want nil", s, err)
-		}
-	}
-	bad := []string{"1am-8am", "01:00", "01:00-", "25:00-26:00"}
-	for _, s := range bad {
-		if err := validateSchedule(s); err == nil {
-			t.Errorf("validateSchedule(%q) = nil, want error", s)
-		}
-	}
-}
-
 func TestLibraryForPrefersLongestMatch(t *testing.T) {
 	cfg := Default()
 	cfg.Libraries = []Library{

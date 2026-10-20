@@ -4,17 +4,15 @@
 # falling back to a default.
 
 [server]
-listen        = "0.0.0.0:8585"
-db            = "/config/lessarr.db"
-log_level     = "info"
-scan_interval = "5m"   # polling; inotify cannot see changes on CIFS
+listen    = "0.0.0.0:8585"
+db        = "/config/lessarr.db"
+log_level = "info"
 
 [encoder]
 backend   = "auto"        # auto | vaapi | qsv | software
 device    = "/dev/dri/renderD128"
 workers   = 1             # keep at 1 on a low-power host
 nice      = 15
-schedule  = "always"      # or "01:00-08:00"
 decide_by = "heuristic"   # sample-based measurement lands in M1
 
 [audio]
