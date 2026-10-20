@@ -176,6 +176,12 @@ func (d *Daemon) sweep(ctx context.Context, force bool) error {
 				return ctx.Err()
 			default:
 			}
+			// A nested library owns its paths outright. Without this, the
+			// broader library scans the same file and can queue it under the
+			// wrong (possibly observe-only) policy.
+			if best, ok := d.cfg.LibraryFor(path); ok && best.Name != lib.Name {
+				continue
+			}
 			total++
 			fi, err := os.Stat(path)
 			if err != nil {

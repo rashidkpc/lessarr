@@ -232,3 +232,18 @@ func TestPauseAndResetRunning(t *testing.T) {
 		t.Fatalf("Current after reset = %v, %v", current, err)
 	}
 }
+
+func TestEnqueueReassignsPendingJobToSpecificLibrary(t *testing.T) {
+	s := openTest(t)
+	path := "/media/tv/Show/Season 1/episode.mkv"
+	if _, err := s.Enqueue(Job{Path: path, Library: "TV", Action: "transcode", SizeBefore: 100}); err != nil {
+		t.Fatal(err)
+	}
+	if added, err := s.Enqueue(Job{Path: path, Library: "Show S1", Action: "transcode", SizeBefore: 100}); err != nil || added {
+		t.Fatalf("reassign Enqueue = %v, %v", added, err)
+	}
+	job, err := s.Claim(time.Now(), "Show S1")
+	if err != nil || job == nil || job.Library != "Show S1" {
+		t.Fatalf("Claim = %+v, %v", job, err)
+	}
+}

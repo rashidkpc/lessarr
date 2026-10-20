@@ -199,7 +199,21 @@ const failureCooldown = 24 * time.Hour
 // re-queued on every scan.
 func (s *Store) Enqueue(j Job) (bool, error) {
 	now := time.Now().Unix()
-	res, err := s.db.Exec(`INSERT INTO jobs (path, library, state, action, codec, reason, size_before, created_at, updated_at)
+	// If a config change gives this path a more specific library, move the
+	// existing pending job with it instead of leaving it under the old policy.
+	res, err := s.db.Exec(`UPDATE jobs SET library=?, action=?, codec=?, reason=?, size_before=?, updated_at=?
+		WHERE path=? AND state='pending'`,
+		j.Library, j.Action, j.Codec, j.Reason, j.SizeBefore, now, j.Path)
+	if err != nil {
+		return false, fmt.Errorf("refresh pending job: %w", err)
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return false, err
+	} else if n > 0 {
+		return false, nil
+	}
+
+	res, err = s.db.Exec(`INSERT INTO jobs (path, library, state, action, codec, reason, size_before, created_at, updated_at)
 		SELECT ?, ?, 'pending', ?, ?, ?, ?, ?, ?
 		WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE path = ? AND state IN ('pending','running'))
 		  AND NOT EXISTS (SELECT 1 FROM jobs WHERE path = ? AND state = 'failed'
