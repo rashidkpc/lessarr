@@ -191,7 +191,7 @@ func (s *Server) prepareStatus(r *http.Request) (Status, error) {
 	status.Tabs = []TabLink{
 		{Key: "running", Label: "Running", Count: status.Counts.Running, Href: "/?tab=running", Active: status.Tab == "running"},
 		{Key: "queued", Label: "Queued", Count: status.Counts.Pending, Href: "/?tab=queued", Active: status.Tab == "queued"},
-		{Key: "done", Label: "Done", Count: status.Counts.Done, Href: "/?tab=done", Active: status.Tab == "done"},
+		{Key: "done", Label: "Done", Count: status.Counts.Done + status.Counts.Skipped, Href: "/?tab=done", Active: status.Tab == "done"},
 		{Key: "failed", Label: "Failed", Count: status.Counts.Failed, Href: "/?tab=failed", Active: status.Tab == "failed"},
 	}
 	return status, nil
@@ -495,7 +495,7 @@ func (s *Server) collect() (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	done, err := s.store.ByState(queue.Done, 20)
+	done, err := s.store.ByStates([]queue.State{queue.Done, queue.Skipped}, 20)
 	if err != nil {
 		return Status{}, err
 	}

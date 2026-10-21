@@ -126,6 +126,7 @@ func Run(ctx context.Context, o Options) error {
 	if err := d.store.ClearRestoreInProgress(); err != nil {
 		return fmt.Errorf("clear stale restore markers: %w", err)
 	}
+	d.reclassifyPolicyFailures()
 	selection, err := ffmpeg.Select(ctx, d.cfg.Encoder.Backend, d.cfg.Encoder.Device, "", d.runner)
 	if err != nil {
 		return fmt.Errorf("select encoder: %w", err)
@@ -382,6 +383,19 @@ func (d *Daemon) runJob(ctx context.Context, n int, job *queue.Job) {
 		if ctx.Err() != nil {
 			return
 		}
+		var policySkip *worker.SkipError
+		if errors.As(err, &policySkip) {
+			size, mtime := int64(0), int64(0)
+			if fi, statErr := os.Lstat(job.Path); statErr == nil && fi.Mode().IsRegular() {
+				size, mtime = fi.Size(), fi.ModTime().Unix()
+			}
+			if markErr := d.store.MarkPolicySkipped(job.ID, job.Path, policySkip.Error(), size, mtime); markErr != nil {
+				fmt.Fprintf(d.log, "job %d policy skip: record: %v\n", job.ID, markErr)
+				return
+			}
+			fmt.Fprintf(d.log, "job %d skipped by policy: %v\n", job.ID, policySkip)
+			return
+		}
 		var permanent *worker.PermanentError
 		if errors.As(err, &permanent) {
 			_ = d.store.Fail(job.ID, maxAttempts, maxAttempts, err.Error(), 0)
@@ -436,6 +450,38 @@ func (d *Daemon) EmptyTrash() (trash.Stats, error) {
 	return trash.Empty(d.store, d.cfg.Libraries)
 }
 
+func (d *Daemon) reclassifyPolicyFailures() {
+	jobs, err := d.store.ByState(queue.Failed, 1000)
+	if err != nil {
+		fmt.Fprintf(d.log, "policy skip reclassification: %v\n", err)
+		return
+	}
+	moved := 0
+	for _, job := range jobs {
+		if !isPolicySkipMessage(job.Error) {
+			continue
+		}
+		size, mtime := int64(0), int64(0)
+		if fi, err := os.Lstat(job.Path); err == nil && fi.Mode().IsRegular() {
+			size, mtime = fi.Size(), fi.ModTime().Unix()
+		}
+		if err := d.store.MarkPolicySkipped(job.ID, job.Path, job.Error, size, mtime); err != nil {
+			fmt.Fprintf(d.log, "policy skip reclassification %d: %v\n", job.ID, err)
+			continue
+		}
+		moved++
+	}
+	if moved > 0 {
+		fmt.Fprintf(d.log, "policy skip reclassification: moved %d failed job(s) to skipped\n", moved)
+	}
+}
+
+func isPolicySkipMessage(message string) bool {
+	return strings.Contains(message, "below min_savings_percent") ||
+		strings.Contains(message, "output grew") ||
+		strings.Contains(message, "below the") && strings.Contains(message, "remux bar")
+}
+
 // Skip marks a failed job as an operator skip. It disappears from the failed
 // tab and is suppressed from automatic queueing until Unskip.
 func (d *Daemon) Skip(jobID int64) error {
@@ -483,10 +529,11 @@ func (d *Daemon) Unskip(path string) error {
 	if err != nil {
 		return err
 	}
-	if reason != "" && reason != queue.OperatorSkipReason {
+	isPolicySkip := strings.HasPrefix(reason, queue.PolicySkipReason)
+	if reason != "" && reason != queue.OperatorSkipReason && !isPolicySkip {
 		return fmt.Errorf("file has a non-skip suppression")
 	}
-	if reason == queue.OperatorSkipReason {
+	if reason == queue.OperatorSkipReason || isPolicySkip {
 		if err := d.store.ClearSuppression(path); err != nil {
 			return err
 		}

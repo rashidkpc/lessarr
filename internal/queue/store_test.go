@@ -2,6 +2,7 @@ package queue
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -589,5 +590,30 @@ func TestPrioritizeMovesPendingJobToFront(t *testing.T) {
 	claimed, err := s.Claim(time.Now(), "Movies")
 	if err != nil || claimed == nil || claimed.ID != second.ID {
 		t.Fatalf("claimed = %+v, %v", claimed, err)
+	}
+}
+
+func TestMarkPolicySkipped(t *testing.T) {
+	s := openTest(t)
+	path := "/media/movies/policy.mkv"
+	if _, err := s.Enqueue(Job{Path: path, Library: "Movies", Action: "transcode", SizeBefore: 100}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.Claim(time.Now())
+	if err != nil || job == nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkPolicySkipped(job.ID, path, "output saves 8%, below min_savings_percent 25%", 100, 1000); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Job(job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != Skipped || got.SizeAfter != 0 || !strings.Contains(got.Error, "min_savings_percent") {
+		t.Fatalf("job = %+v", got)
+	}
+	if reason, err := s.SuppressionReason(path); err != nil || !strings.HasPrefix(reason, PolicySkipReason) {
+		t.Fatalf("suppression = %q, %v", reason, err)
 	}
 }

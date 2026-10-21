@@ -77,7 +77,7 @@ func (s *Server) filesPage(w http.ResponseWriter, r *http.Request) {
 	for _, row := range rows {
 		view := FileView{FileRow: row}
 		switch {
-		case row.SuppressedReason == queue.OperatorSkipReason:
+		case row.SuppressedReason == queue.OperatorSkipReason || strings.HasPrefix(row.SuppressedReason, queue.PolicySkipReason):
 			view.QueueLabel = "skip"
 			view.QueueClass = "warn"
 			view.CanUnskip = writable[row.Library]

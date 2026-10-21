@@ -339,6 +339,9 @@ const RestoreInProgressReason = "restore in progress"
 // OperatorSkipReason marks a path the operator does not want processed.
 const OperatorSkipReason = "skipped by operator"
 
+// PolicySkipReason marks a file whose encode completed but missed a policy bar.
+const PolicySkipReason = "policy skip"
+
 // Enqueue returns false when an active job exists, or when the same path and
 // size failed recently. The cooldown keeps a deterministic failure from being
 // re-queued on every scan.
@@ -781,6 +784,73 @@ func (s *Store) MarkSkipped(jobID int64, path, reason string, size, mtime int64)
 func (s *Store) MarkForRescan(path string) error {
 	_, err := s.db.Exec(`UPDATE files SET checked_at=0 WHERE path=?`, path)
 	return err
+}
+
+// MarkPolicySkipped turns a savings-policy miss into a skipped job and stops
+// future scans from repeatedly encoding the same source.
+func (s *Store) MarkPolicySkipped(jobID int64, path, reason string, size, mtime int64) error {
+	now := time.Now()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`UPDATE jobs SET state='skipped', size_after=0, backup='', error=?,
+		next_attempt_at=0, updated_at=?, finished_at=? WHERE id=? AND state IN ('running','failed')`,
+		reason, now.Unix(), now.Unix(), jobID)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n != 1 {
+		return fmt.Errorf("job %d is not running or failed", jobID)
+	}
+	suppression := PolicySkipReason + ": " + reason
+	if _, err := tx.Exec(`INSERT INTO file_suppressions (path, reason, size, mtime, created_at)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(path) DO UPDATE SET reason=excluded.reason, size=excluded.size,
+			mtime=excluded.mtime, created_at=excluded.created_at`,
+		path, suppression, size, mtime, now.Unix()); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE files SET size=?, mtime=?, action='skip', codes='policy_skip',
+		reason=?, checked_at=? WHERE path=?`, size, mtime, reason, now.Unix(), path); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ByStates returns finished jobs across states, newest first.
+func (s *Store) ByStates(states []State, limit int) ([]Job, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if len(states) == 0 {
+		return nil, nil
+	}
+	query := `SELECT id, path, library, state, action, codec, reason, size_before, size_after, estimated_bytes, savings_unmeasured,
+		attempts, error, backup, created_at, updated_at, started_at, finished_at
+		FROM jobs WHERE state IN (` + placeholders(len(states)) + `) ORDER BY id DESC LIMIT ?`
+	args := make([]any, 0, len(states)+1)
+	for _, state := range states {
+		args = append(args, string(state))
+	}
+	args = append(args, limit)
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var jobs []Job
+	for rows.Next() {
+		j, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, j)
+	}
+	return jobs, rows.Err()
 }
 
 // RequeueSkipped makes the latest skipped job pending again after unskip.

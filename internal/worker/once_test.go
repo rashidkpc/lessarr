@@ -188,20 +188,21 @@ func TestCheckSavings(t *testing.T) {
 	lib.MinRemuxBytes = 100
 	mb := config.MB
 	cases := []struct {
-		name    string
-		before  int64
-		after   int64
-		d       decision.Decision
-		wantErr bool
+		name     string
+		before   int64
+		after    int64
+		d        decision.Decision
+		wantErr  bool
+		wantSkip bool
 	}{
-		{"transcode passes", 1000 * mb, 700 * mb, decision.Decision{Action: decision.Transcode}, false},
-		{"transcode below bar", 1000 * mb, 900 * mb, decision.Decision{Action: decision.Transcode}, true},
-		{"output grew", 1000 * mb, 1001 * mb, decision.Decision{Action: decision.Transcode}, true},
-		{"remux passes", 1000 * mb, 800 * mb, decision.Decision{Action: decision.Remux}, false},
-		{"remux below bar", 1000 * mb, 950 * mb, decision.Decision{Action: decision.Remux}, true},
+		{"transcode passes", 1000 * mb, 700 * mb, decision.Decision{Action: decision.Transcode}, false, false},
+		{"transcode below bar", 1000 * mb, 900 * mb, decision.Decision{Action: decision.Transcode}, true, true},
+		{"output grew", 1000 * mb, 1001 * mb, decision.Decision{Action: decision.Transcode}, true, true},
+		{"remux passes", 1000 * mb, 800 * mb, decision.Decision{Action: decision.Remux}, false, false},
+		{"remux below bar", 1000 * mb, 950 * mb, decision.Decision{Action: decision.Remux}, true, true},
 		{"container remux may not shrink", 1000 * mb, 1001 * mb, decision.Decision{
 			Action: decision.Remux, Codes: []decision.Code{decision.CodeContainerRemux},
-		}, false},
+		}, false, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -210,8 +211,12 @@ func TestCheckSavings(t *testing.T) {
 				t.Fatalf("checkSavings() error = %v, wantErr %v", err, tc.wantErr)
 			}
 			if err != nil {
+				var skip *SkipError
 				var permanent *PermanentError
-				if !errors.As(err, &permanent) {
+				if tc.wantSkip && !errors.As(err, &skip) {
+					t.Errorf("error should be a skip: %v", err)
+				}
+				if !tc.wantSkip && !errors.As(err, &permanent) {
 					t.Errorf("error should be permanent: %v", err)
 				}
 			}
@@ -230,9 +235,9 @@ func TestOnceRejectsOutputBelowSavingsBar(t *testing.T) {
 	o.Force = true
 	o.Library.MinSavingsPercent = 99
 	_, err = Once(context.Background(), path, o)
-	var permanent *PermanentError
-	if !errors.As(err, &permanent) {
-		t.Fatalf("expected a permanent savings error, got %v", err)
+	var skip *SkipError
+	if !errors.As(err, &skip) {
+		t.Fatalf("expected a policy skip, got %v", err)
 	}
 	after, err := os.ReadFile(path)
 	if err != nil {

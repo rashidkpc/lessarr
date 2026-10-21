@@ -46,12 +46,19 @@ type Result struct {
 	Elapsed  time.Duration
 }
 
-// PermanentError marks a failure that retrying cannot fix, such as an output
-// that misses the library's savings bar.
+// PermanentError marks a failure that retrying cannot fix and that needs
+// operator attention.
 type PermanentError struct{ Err error }
 
 func (e *PermanentError) Error() string { return e.Err.Error() }
 func (e *PermanentError) Unwrap() error { return e.Err }
+
+// SkipError marks a policy miss that should become a skipped job, not a
+// retryable failure. The source is untouched.
+type SkipError struct{ Err error }
+
+func (e *SkipError) Error() string { return e.Err.Error() }
+func (e *SkipError) Unwrap() error { return e.Err }
 
 // Once decides and, only when enabled or explicitly forced, processes one file.
 // --force bypasses the per-library write=false guard, not safety or policy
@@ -211,20 +218,20 @@ func checkSavings(before, after int64, d decision.Decision, lib config.Library) 
 	}
 	saved := before - after
 	if saved < 0 {
-		return &PermanentError{Err: fmt.Errorf("output grew by %s; refusing to replace", humanBytes(-saved))}
+		return &SkipError{Err: fmt.Errorf("output grew by %s; refusing to replace", humanBytes(-saved))}
 	}
 	switch d.Action {
 	case decision.Transcode:
 		need := int64(float64(before) * lib.MinSavingsPercent / 100)
 		if saved < need {
-			return &PermanentError{Err: fmt.Errorf(
+			return &SkipError{Err: fmt.Errorf(
 				"output saves %s (%.1f%%), below min_savings_percent %.0f%%; refusing to replace",
 				humanBytes(saved), float64(saved)/float64(before)*100, lib.MinSavingsPercent)}
 		}
 	case decision.Remux:
 		need := lib.MinRemuxBytes * config.MB
 		if saved < need {
-			return &PermanentError{Err: fmt.Errorf(
+			return &SkipError{Err: fmt.Errorf(
 				"output saves %s, below the %d MB remux bar; refusing to replace",
 				humanBytes(saved), lib.MinRemuxBytes)}
 		}

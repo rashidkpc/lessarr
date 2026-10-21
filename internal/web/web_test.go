@@ -686,3 +686,26 @@ func TestHealthAndReadyz(t *testing.T) {
 		t.Fatalf("unhealthy readyz = %d", w.Code)
 	}
 }
+
+func TestDoneTabIncludesSkippedJobs(t *testing.T) {
+	s := testServer(t)
+	path := "/media/movies/SkippedDone.mkv"
+	if _, err := s.store.Enqueue(queue.Job{Path: path, Library: "Movies", Action: "transcode", SizeBefore: 10}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.store.Claim(time.Now())
+	if err != nil || job == nil {
+		t.Fatal(err)
+	}
+	if err := s.store.Complete(job.ID, queue.Skipped, 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/?tab=done", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "skipped") {
+		t.Error("done tab does not include skipped jobs")
+	}
+}

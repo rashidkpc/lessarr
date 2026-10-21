@@ -251,7 +251,7 @@ const dashboardHTML = `{{define "dashboard"}}
 <td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
 <td class="path"><a href="/jobs/{{.ID}}"><code>{{.Path}}</code></a></td>
 <td>{{.Library}}</td>
-<td><span class="badge">{{.Action}}</span></td>
+<td><span class="badge">{{.Action}}</span>{{if eq .StateName "skipped"}} <span class="badge warn" title="{{.Error}}">skipped</span>{{if .Error}}<div class="muted" style="font-size:.78rem;margin-top:.2rem">{{.Error}}</div>{{end}}{{end}}</td>
 <td class="nowrap">{{sizePair .SizeBefore .SizeAfter}}</td>
 <td class="muted nowrap">{{when .FinishedAt}}</td>
 <td class="actions actions-stack">
@@ -266,7 +266,7 @@ const dashboardHTML = `{{define "dashboard"}}
 
 {{else if eq .Tab "failed"}}
 <div class="table-wrap"><table>
-<tr><th>#</th><th>File</th><th>Library</th><th class="nowrap">Size</th><th>Error</th><th class="nowrap">When</th><th></th></tr>
+<tr><th>#</th><th>File</th><th>Library</th><th class="nowrap">Size</th><th>Status</th><th class="nowrap">When</th><th></th></tr>
 {{range .Failed}}
 <tr>
 <td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
@@ -412,7 +412,7 @@ const filesHTML = `{{define "files"}}{{template "head" .}}
 </body></html>{{end}}`
 
 const jobHTML = `{{define "job"}}{{template "head" .}}
-<h1>Job #{{.ID}} <span class="badge {{if eq .StateName "done"}}ok{{else if eq .StateName "failed"}}err{{else if eq .StateName "running"}}warn{{end}}">{{.StateName}}</span>{{if .Restored}} <span class="badge warn">restored</span>{{end}}</h1>
+<h1>Job #{{.ID}} <span class="badge {{if eq .StateName "done"}}ok{{else if eq .StateName "failed"}}err{{else if eq .StateName "running"}}warn{{else if eq .StateName "skipped"}}warn{{end}}">{{.StateName}}</span>{{if .Restored}} <span class="badge warn">restored</span>{{end}}</h1>
 <div class="muted">
 {{if eq .StateName "pending"}}<a href="/?tab=queued">← Queued</a>{{else if eq .StateName "done"}}<a href="/?tab=done">← Done</a>{{else if eq .StateName "failed"}}<a href="/?tab=failed">← Failed</a>{{else}}<a href="/?tab=running">← Running</a>{{end}}
 &nbsp; <a href="/files?q={{urlquery .Path}}">file decisions</a>
@@ -474,8 +474,8 @@ const jobHTML = `{{define "job"}}{{template "head" .}}
 <div class="panel" style="white-space:pre-wrap">{{.Reason}}</div>
 
 {{if .Error}}
-<h2>Error</h2>
-<div class="panel" style="white-space:pre-wrap;background:#fef2f2;border-color:#fecaca;color:#991b1b">{{.Error}}</div>
+<h2>{{if eq .StateName "skipped"}}Status{{else}}Error{{end}}</h2>
+<div class="panel" style="white-space:pre-wrap;{{if eq .StateName "skipped"}}background:#fffbeb;border-color:#fde68a;color:#92400e{{else}}background:#fef2f2;border-color:#fecaca;color:#991b1b{{end}}">{{.Error}}</div>
 {{end}}
 </div>
 </body></html>{{end}}`
