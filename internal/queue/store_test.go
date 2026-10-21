@@ -515,3 +515,20 @@ func TestMetricsRoundTripAndPrune(t *testing.T) {
 		t.Fatalf("after prune = %d points", len(points))
 	}
 }
+
+func TestNextQueuedOnlyWritableLibraries(t *testing.T) {
+	s := openTest(t)
+	if _, err := s.Enqueue(Job{Path: "/tv/a.mkv", Library: "TV", Action: "transcode", SizeBefore: 10}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Enqueue(Job{Path: "/movies/b.mkv", Library: "Movies", Action: "transcode", SizeBefore: 20}); err != nil {
+		t.Fatal(err)
+	}
+	jobs, err := s.NextQueued(time.Now(), 5, "Movies")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs) != 1 || jobs[0].Library != "Movies" {
+		t.Fatalf("next = %+v", jobs)
+	}
+}

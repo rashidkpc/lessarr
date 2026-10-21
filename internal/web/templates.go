@@ -190,6 +190,25 @@ const dashboardHTML = `{{define "dashboard"}}
 <div class="panel muted">Nothing is running.</div>
 {{end}}
 
+{{if .UpNext}}
+<h2>Up next</h2>
+<div class="table-wrap"><table>
+<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th class="nowrap">Size</th><th class="nowrap">Queued</th></tr>
+{{range .UpNext}}
+<tr>
+<td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
+<td class="path"><a href="/jobs/{{.ID}}"><code>{{.Path}}</code></a></td>
+<td>{{.Library}}</td>
+<td><span class="badge">{{.Action}}</span></td>
+<td class="nowrap">{{sizeEstimate .SizeBefore .EstimatedBytes .SavingsUnmeasured}}</td>
+<td class="muted nowrap">{{when .CreatedAt}}</td>
+</tr>
+{{end}}
+</table></div>
+{{else if .Current}}
+<div class="panel muted">Nothing else is queued for writable libraries.</div>
+{{end}}
+
 {{else if eq .Tab "queued"}}
 <div class="table-wrap"><table>
 <tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th class="nowrap">Size</th><th class="nowrap">Queued</th></tr>

@@ -785,6 +785,37 @@ func (s *Store) DoneTranscodes() ([]Job, error) {
 	return jobs, rows.Err()
 }
 
+// NextQueued returns the next claimable jobs for writable libraries.
+func (s *Store) NextQueued(now time.Time, limit int, writable ...string) ([]Job, error) {
+	if limit <= 0 || len(writable) == 0 {
+		return nil, nil
+	}
+	query := `SELECT id, path, library, state, action, codec, reason, size_before, size_after, estimated_bytes, savings_unmeasured,
+		attempts, error, backup, created_at, updated_at, started_at, finished_at
+		FROM jobs WHERE state = 'pending' AND next_attempt_at <= ?
+		AND NOT EXISTS (SELECT 1 FROM file_suppressions WHERE path = jobs.path)
+		AND library IN (` + placeholders(len(writable)) + `) ORDER BY id LIMIT ?`
+	args := []any{now.Unix()}
+	for _, name := range writable {
+		args = append(args, name)
+	}
+	args = append(args, limit)
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var jobs []Job
+	for rows.Next() {
+		j, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, j)
+	}
+	return jobs, rows.Err()
+}
+
 func (s *Store) ByState(state State, limit int) ([]Job, error) {
 	if limit <= 0 {
 		limit = 25

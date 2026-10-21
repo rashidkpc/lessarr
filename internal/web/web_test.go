@@ -531,3 +531,21 @@ func TestNavHighlightsCurrentScreen(t *testing.T) {
 		}
 	}
 }
+
+func TestRunningTabShowsUpNext(t *testing.T) {
+	s := testServer(t)
+	s.cfg.Libraries[0].Write = true
+	path := "/media/movies/Next.mkv"
+	if _, err := s.store.Enqueue(queue.Job{Path: path, Library: "Movies", Action: "transcode", SizeBefore: 100}); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Up next") || !strings.Contains(body, path) {
+		t.Errorf("running tab missing up next: %s", body)
+	}
+}

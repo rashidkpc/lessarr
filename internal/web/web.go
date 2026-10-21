@@ -333,6 +333,7 @@ type Status struct {
 	Current       *queue.Job
 	Progress      *Progress
 	Queued        []queue.Job
+	UpNext        []queue.Job
 	Done          []queue.Job
 	Failed        []queue.Job
 	TrashFiles    int
@@ -404,21 +405,30 @@ func (s *Server) collect() (Status, error) {
 	if failed == nil {
 		failed = []queue.Job{}
 	}
+	writable := make([]string, 0, len(s.cfg.Libraries))
+	for _, lib := range s.cfg.Libraries {
+		if lib.Write {
+			writable = append(writable, lib.Name)
+		}
+	}
+	upNext, err := s.store.NextQueued(time.Now(), 5, writable...)
+	if err != nil {
+		return Status{}, err
+	}
+	if upNext == nil {
+		upNext = []queue.Job{}
+	}
 	var progress *Progress
 	if s.progress != nil {
 		progress = s.progress()
 	}
 	status := Status{
 		Version: s.version, Paused: paused, Counts: counts,
-		Current: current, Progress: progress, Queued: queued, Done: done, Failed: failed,
+		Current: current, Progress: progress, Queued: queued, UpNext: upNext,
+		Done: done, Failed: failed,
 		TrashFiles: trashStats.Files, TrashBytes: trashStats.Bytes, TrashLimitGB: s.cfg.Trash.MaxSizeGB,
 		Saved24h: saved24h, Done24h: done24h, Saved7d: saved7d, Done7d: done7d,
-		SavedTotal: savedTotal, DoneTotal: doneTotal,
-	}
-	for _, l := range s.cfg.Libraries {
-		if l.Write {
-			status.WritesEnabled = true
-		}
+		SavedTotal: savedTotal, DoneTotal: doneTotal, WritesEnabled: len(writable) > 0,
 	}
 	return status, nil
 }
