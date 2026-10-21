@@ -402,7 +402,7 @@ func TestTrashReportPageAndAPI(t *testing.T) {
 		t.Fatalf("trash page = %d: %s", w.Code, w.Body.String())
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "Retained originals on disk") || !strings.Contains(body, orphan) {
+	if !strings.Contains(body, "Retained originals on disk") || !strings.Contains(body, "Trash locations") || !strings.Contains(body, orphan) {
 		t.Errorf("trash page missing report content")
 	}
 

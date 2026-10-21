@@ -458,6 +458,18 @@ Policy: keep the newest original per source, retention {{.Retention}}, cap {{.Tr
 Orphans are preserved, not deleted automatically — after database loss they may be the only recoverable copy.
 </p>
 
+<h2>Trash locations</h2>
+{{if .Report.Locations}}
+<div class="table-wrap"><table>
+<tr><th>Location</th><th class="nowrap">Files</th><th class="nowrap">Size</th><th class="nowrap">Tracked</th><th class="nowrap">Orphans</th><th class="nowrap">Modified</th></tr>
+{{range .Report.Locations}}
+<tr><td class="path"><code>{{.Path}}</code></td><td>{{.Files}}</td><td class="nowrap">{{bytes .Bytes}}</td><td>{{.Tracked}}</td><td>{{.Orphans}}</td><td class="muted nowrap">{{when .Modified}}</td></tr>
+{{end}}
+</table></div>
+{{else}}
+<div class="panel muted">No <code>.lessarr-trash</code> directories found in configured libraries.</div>
+{{end}}
+
 <h2>Orphan files</h2>
 {{if .Report.OrphanFiles}}
 <p class="muted">Files in a <code>.lessarr-trash</code> directory that no completed job references.</p>

@@ -35,6 +35,16 @@ type Entry struct {
 	ModTime time.Time
 }
 
+// Location is one .lessarr-trash directory on disk.
+type Location struct {
+	Path     string
+	Files    int
+	Bytes    int64
+	Tracked  int
+	Orphans  int
+	Modified time.Time
+}
+
 // Missing is a database reference whose retained original is gone.
 type Missing struct {
 	JobID  int64
@@ -48,6 +58,7 @@ type Missing struct {
 // after database loss they may be the only recoverable copy.
 type Report struct {
 	ScannedDirs  int
+	Locations    []Location
 	TrackedFiles int
 	TrackedBytes int64
 	OrphanFiles  []Entry
@@ -106,9 +117,14 @@ func BuildReport(store Store, libraries []config.Library) (Report, error) {
 			}
 			seenDirs[clean] = true
 			report.ScannedDirs++
+			loc := Location{Path: clean}
+			if info, err := entry.Info(); err == nil {
+				loc.Modified = info.ModTime()
+			}
 			entries, err := os.ReadDir(clean)
 			if err != nil {
 				report.Errors = append(report.Errors, fmt.Sprintf("%s: %v", clean, err))
+				report.Locations = append(report.Locations, loc)
 				return filepath.SkipDir
 			}
 			for _, item := range entries {
@@ -116,25 +132,39 @@ func BuildReport(store Store, libraries []config.Library) (Report, error) {
 					continue
 				}
 				path := filepath.Join(clean, item.Name())
-				if _, ok := known[path]; ok || seenOrphans[path] {
-					continue
-				}
 				fi, err := os.Lstat(path)
 				if err != nil || !fi.Mode().IsRegular() || fi.Mode()&os.ModeSymlink != 0 {
 					continue
 				}
+				loc.Files++
+				loc.Bytes += fi.Size()
+				if fi.ModTime().After(loc.Modified) {
+					loc.Modified = fi.ModTime()
+				}
+				if _, ok := known[path]; ok {
+					loc.Tracked++
+					continue
+				}
+				if seenOrphans[path] {
+					continue
+				}
 				seenOrphans[path] = true
+				loc.Orphans++
 				report.OrphanFiles = append(report.OrphanFiles, Entry{
 					Path: path, Size: fi.Size(), ModTime: fi.ModTime(),
 				})
 				report.OrphanBytes += fi.Size()
 			}
+			report.Locations = append(report.Locations, loc)
 			return filepath.SkipDir
 		})
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			report.Errors = append(report.Errors, fmt.Sprintf("%s: %v", lib.Path, err))
 		}
 	}
+	sort.Slice(report.Locations, func(i, j int) bool {
+		return report.Locations[i].Path < report.Locations[j].Path
+	})
 	sort.Slice(report.OrphanFiles, func(i, j int) bool {
 		return report.OrphanFiles[i].ModTime.After(report.OrphanFiles[j].ModTime)
 	})

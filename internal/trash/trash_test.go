@@ -154,6 +154,13 @@ func TestBuildReportFindsOrphansAndMissing(t *testing.T) {
 	if len(report.Missing) != 1 || report.Missing[0].JobID != 2 || report.Missing[0].Backup != missing {
 		t.Fatalf("missing = %+v", report.Missing)
 	}
+	if len(report.Locations) != 1 {
+		t.Fatalf("locations = %+v", report.Locations)
+	}
+	loc := report.Locations[0]
+	if loc.Path != filepath.Join(lib, ".lessarr-trash") || loc.Files != 2 || loc.Tracked != 1 || loc.Orphans != 1 || loc.Bytes != 30 {
+		t.Fatalf("location = %+v", loc)
+	}
 }
 
 func TestDeleteOrphanRefusesTrackedAndRemovesOrphan(t *testing.T) {
