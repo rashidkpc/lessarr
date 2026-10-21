@@ -193,7 +193,7 @@ const dashboardHTML = `{{define "dashboard"}}
 <td class="muted nowrap">{{when .FinishedAt}}</td>
 <td class="actions">
 {{if .Restorable}}<form method="post" action="/api/jobs/{{.ID}}/restore" onsubmit="return confirm('Restore the original and discard the transcoded output? Automatic processing will be suppressed.')"><button class="secondary small" type="submit">Restore</button></form>{{end}}
-{{if .Retryable}}<form method="post" action="/api/jobs/{{.ID}}/retry" onsubmit="return confirm('Restore the original and re-transcode with current settings?')"><button class="secondary small" type="submit">Retry</button></form>{{end}}
+{{if .Retryable}}<form method="post" action="/api/jobs/{{.ID}}/retry?tab={{$.Tab}}" onsubmit="return confirm('Restore the original and re-transcode with current settings?')"><button class="secondary small" type="submit">Retry</button></form>{{end}}
 </td>
 </tr>
 {{else}}
@@ -211,7 +211,7 @@ const dashboardHTML = `{{define "dashboard"}}
 <td>{{.Library}}</td>
 <td>{{if .Restored}}<span class="badge warn">restored</span> <span class="muted">{{.Error}}</span>{{else}}<span class="err">{{.Error}}</span>{{end}}</td>
 <td class="muted">{{when .UpdatedAt}}</td>
-<td class="actions">{{if .Retryable}}<form method="post" action="/api/jobs/{{.ID}}/retry" onsubmit="return confirm('Retry this job with current settings?')"><button class="secondary small" type="submit">Retry</button></form>{{end}}</td>
+<td class="actions">{{if .Retryable}}<form method="post" action="/api/jobs/{{.ID}}/retry?tab={{$.Tab}}" onsubmit="return confirm('Retry this job with current settings?')"><button class="secondary small" type="submit">Retry</button></form>{{end}}</td>
 </tr>
 {{else}}
 <tr><td colspan="6" class="muted">No failures.</td></tr>

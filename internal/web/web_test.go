@@ -213,9 +213,12 @@ func TestRetryEndpoint(t *testing.T) {
 	var called int64
 	s := New(&cfg, store, "test", nil, func(id int64) error { called = id; return nil }, nil)
 	w := httptest.NewRecorder()
-	s.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/jobs/42/retry", nil))
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/jobs/42/retry?tab=done", nil))
 	if w.Code != http.StatusSeeOther || called != 42 {
 		t.Fatalf("retry status=%d called=%d", w.Code, called)
+	}
+	if got := w.Header().Get("Location"); got != "/?tab=done" {
+		t.Errorf("retry redirect = %q, want done tab", got)
 	}
 }
 

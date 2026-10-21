@@ -271,7 +271,18 @@ func (s *Server) retryJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
-	http.Redirect(w, r, "/?tab=queued", http.StatusSeeOther)
+	tab := r.FormValue("tab")
+	if tab == "" {
+		if referer, err := url.Parse(r.Referer()); err == nil {
+			tab = referer.Query().Get("tab")
+		}
+	}
+	switch tab {
+	case "running", "queued", "done", "failed":
+	default:
+		tab = "queued"
+	}
+	http.Redirect(w, r, "/?tab="+url.QueryEscape(tab), http.StatusSeeOther)
 }
 
 func (s *Server) statusPage(w http.ResponseWriter, r *http.Request) {
