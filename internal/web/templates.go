@@ -118,6 +118,15 @@ td.actions-stack form:last-child { margin-bottom:0; }
 .toolbar { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; margin-bottom:.4rem; }
 .job-actions { display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; margin:.8rem 0; }
 .job-actions form { margin:0; }
+.job-compare { position:relative; line-height:0; border:1px solid var(--border); border-radius:12px; overflow:hidden; background:var(--surface); user-select:none; margin-bottom:.4rem; }
+.job-compare>img { display:block; width:100%; height:auto; }
+.job-after { position:absolute; inset:0; overflow:hidden; clip-path:inset(0 0 0 50%); }
+.job-after img { position:absolute; top:0; left:0; width:100%; height:auto; }
+.job-divider { position:absolute; top:0; bottom:0; left:50%; width:2px; background:#fffefa; box-shadow:0 0 6px rgba(15,23,42,.8); pointer-events:none; }
+.job-divider:after { content:""; position:absolute; top:50%; left:50%; width:30px; height:30px; border-radius:50%; background:#fffefa; border:2px solid var(--accent); transform:translate(-50%,-50%); box-shadow:0 1px 6px rgba(15,23,42,.35); }
+.job-compare input { position:absolute; inset:0; width:100%; height:100%; margin:0; opacity:0; cursor:ew-resize; }
+figure.comparison { margin:0 0 1.5rem; }
+figure.comparison figcaption { color:var(--muted); margin-top:.35rem; }
 .charts { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:1rem; margin-top:1rem; }
 .chart { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem; box-shadow:0 1px 2px rgba(15,23,42,.04); }
 .chart-head { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; }
@@ -424,8 +433,7 @@ const jobHTML = `{{define "job"}}{{template "head" .}}
 <h1>Job #{{.ID}} <span class="badge {{if eq .StateName "done"}}ok{{else if eq .StateName "failed"}}err{{else if eq .StateName "running"}}warn{{else if eq .StateName "skipped"}}warn{{end}}">{{.StateName}}</span>{{if .Restored}} <span class="badge warn">restored</span>{{end}}</h1>
 <div class="muted">
 {{if eq .StateName "pending"}}<a href="/?tab=queued">← Queued</a>{{else if eq .StateName "done"}}<a href="/?tab=done">← Done</a>{{else if eq .StateName "failed"}}<a href="/?tab=failed">← Failed</a>{{else}}<a href="/?tab=running">← Running</a>{{end}}
-&nbsp; <a href="/files?q={{urlquery .Path}}">file decisions</a>
-{{if .HasComparison}}&nbsp; <a href="/comparisons/{{.ID}}/">compare original vs new</a>{{end}}
+
 </div>
 {{if or .CanRestore .CanRetry}}
 <div class="job-actions">
@@ -444,7 +452,7 @@ const jobHTML = `{{define "job"}}{{template "head" .}}
 
 <h2>File</h2>
 <div class="panel">
-<div class="path"><code>{{.Path}}</code></div>
+<div class="path"><a href="/files?q={{urlquery .Path}}"><code>{{.Path}}</code></a></div>
 <div class="muted">{{.Library}} · {{.Action}} · {{.Codec}}</div>
 </div>
 
@@ -457,6 +465,23 @@ const jobHTML = `{{define "job"}}{{template "head" .}}
 {{if not .FinishedAt.IsZero}}<tr><th>Finished</th><td>{{.FinishedAt.Format "2006-01-02 15:04:05"}} <span class="muted">({{when .FinishedAt}})</span></td></tr>{{end}}
 {{if .Backup}}<tr><th>Original</th><td class="path"><code>{{.Backup}}</code></td></tr>{{end}}
 </table></div>
+
+{{if .HasComparison}}
+<h2>Original vs new</h2>
+<p class="muted">Drag the white bar: left reveals the original, right reveals the new file.</p>
+{{$id := .ID}}
+{{range .ComparisonSamples}}
+<figure class="comparison">
+<div class="job-compare">
+<img src="/comparisons/{{$id}}/{{printf "%02d" .}}-original.png" alt="original sample {{.}}">
+<div class="job-after"><img src="/comparisons/{{$id}}/{{printf "%02d" .}}-new.png" alt="new sample {{.}}"></div>
+<div class="job-divider"></div>
+<input type="range" min="0" max="100" value="50" aria-label="Reveal original or new sample {{.}}">
+</div>
+<figcaption>Sample {{.}} · drag to compare</figcaption>
+</figure>
+{{end}}
+{{end}}
 
 {{if .Analysis}}
 <h2>Savings breakdown</h2>
@@ -479,8 +504,6 @@ const jobHTML = `{{define "job"}}{{template "head" .}}
 <p class="muted">Compared against the retained original; higher is better.</p>
 {{end}}
 {{if .Analysis.SSIMError}}<p class="muted">SSIM unavailable: {{.Analysis.SSIMError}}</p>{{end}}
-{{else}}
-<p class="muted">No savings analysis stored yet. Run <code>lessarr analyze --config FILE {{.ID}}</code>.</p>
 {{end}}
 
 <h2>Decision</h2>
@@ -491,6 +514,20 @@ const jobHTML = `{{define "job"}}{{template "head" .}}
 <div class="panel" style="white-space:pre-wrap;{{if eq .StateName "skipped"}}background:#fffbeb;border-color:#fde68a;color:#92400e{{else}}background:#fef2f2;border-color:#fecaca;color:#991b1b{{end}}">{{.Error}}</div>
 {{end}}
 </div>
+<script>
+document.querySelectorAll(".job-compare").forEach(function (el) {
+  var range = el.querySelector("input");
+  var after = el.querySelector(".job-after");
+  var divider = el.querySelector(".job-divider");
+  function update() {
+    var v = Number(range.value);
+    after.style.clipPath = "inset(0 0 0 " + v + "%)";
+    divider.style.left = v + "%";
+  }
+  range.addEventListener("input", update);
+  update();
+});
+</script>
 </body></html>{{end}}`
 
 const trashHTML = `{{define "trash"}}{{template "head" .}}

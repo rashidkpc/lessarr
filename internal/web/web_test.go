@@ -102,7 +102,7 @@ func TestJobPage(t *testing.T) {
 	w = httptest.NewRecorder()
 	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/jobs/"+strconv.FormatInt(job.ID, 10), nil))
 	body := w.Body.String()
-	for _, want := range []string{"Example.mkv", "Decision", "h264 video", "running", "Savings breakdown", "compare original vs new"} {
+	for _, want := range []string{"Example.mkv", "Decision", "h264 video", "running", "Savings breakdown", "Original vs new", "/comparisons/", "/files?q="} {
 		if !strings.Contains(body, want) {
 			t.Errorf("job page missing %q", want)
 		}
@@ -111,6 +111,9 @@ func TestJobPage(t *testing.T) {
 	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/jobs/9999", nil))
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("missing job status = %d", w.Code)
+	}
+	if strings.Contains(body, "file decisions") {
+		t.Error("job page still has the separate file decisions link")
 	}
 }
 

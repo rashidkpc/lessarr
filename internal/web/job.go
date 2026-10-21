@@ -54,13 +54,14 @@ func (s *Server) restorable(job *queue.Job) bool {
 
 type JobPage struct {
 	*queue.Job
-	Version       string
-	Page          string
-	Paused        bool
-	Analysis      *analysis.Result
-	HasComparison bool
-	CanRetry      bool
-	CanRestore    bool
+	Version           string
+	Page              string
+	Paused            bool
+	Analysis          *analysis.Result
+	HasComparison     bool
+	ComparisonSamples []int
+	CanRetry          bool
+	CanRestore        bool
 }
 
 func (s *Server) jobPage(w http.ResponseWriter, r *http.Request) {
@@ -86,6 +87,7 @@ func (s *Server) jobPage(w http.ResponseWriter, r *http.Request) {
 	page := JobPage{Job: job, Version: s.version, Page: "", Paused: paused}
 	if _, err := os.Stat(filepath.Join(compare.Dir(s.cfg.Server.DB), strconv.FormatInt(job.ID, 10), "index.html")); err == nil {
 		page.HasComparison = true
+		page.ComparisonSamples = []int{1, 2, 3, 4, 5}
 	}
 	page.CanRetry = s.retryable(job)
 	page.CanRestore = s.restorable(job)
