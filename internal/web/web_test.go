@@ -609,4 +609,35 @@ func TestFailedTabHasSkipButton(t *testing.T) {
 	if !strings.Contains(w.Body.String(), want) {
 		t.Errorf("failed tab missing skip action %q", want)
 	}
+	if !strings.Contains(w.Body.String(), "actions actions-stack") {
+		t.Error("failed actions are not stacked vertically")
+	}
+}
+
+func TestFilesPageShowsUnskipForAutoSkippedJob(t *testing.T) {
+	s := testServer(t)
+	s.cfg.Libraries[0].Write = true
+	path := "/media/movies/AutoSkipped.mkv"
+	if err := s.store.PutFile(queue.File{Path: path, Library: "Movies", Size: 10, Action: "skip", Reason: "compliant"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.Enqueue(queue.Job{Path: path, Library: "Movies", Action: "transcode", SizeBefore: 10}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.store.Claim(time.Now())
+	if err != nil || job == nil {
+		t.Fatal(err)
+	}
+	if err := s.store.Complete(job.ID, queue.Skipped, 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/files?queue=skipped", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, path) || !strings.Contains(body, "Unskip") {
+		t.Errorf("auto-skipped file missing unskip: %s", body)
+	}
 }

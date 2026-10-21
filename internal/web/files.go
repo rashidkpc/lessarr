@@ -55,7 +55,7 @@ func (s *Server) filesPage(w http.ResponseWriter, r *http.Request) {
 		Limit:   100,
 	}
 	switch q.Queue {
-	case "pending", "running", "none":
+	case "pending", "running", "none", "skipped":
 	default:
 		q.Queue = ""
 	}
@@ -95,6 +95,7 @@ func (s *Server) filesPage(w http.ResponseWriter, r *http.Request) {
 			}
 		case row.Action == "skip":
 			view.QueueLabel = "skip"
+			view.CanUnskip = writable[row.Library] && row.SkippedJobID > 0
 		case writable[row.Library]:
 			view.QueueLabel = "not queued"
 		default:
@@ -120,7 +121,7 @@ func (s *Server) filesPage(w http.ResponseWriter, r *http.Request) {
 	}
 	page.QueueOptions = []FilterOption{{Label: "All queues", Selected: q.Queue == ""}}
 	for _, item := range []struct{ value, label string }{
-		{"pending", "Queued"}, {"running", "Running"}, {"none", "Not queued"},
+		{"pending", "Queued"}, {"running", "Running"}, {"none", "Not queued"}, {"skipped", "Skipped"},
 	} {
 		page.QueueOptions = append(page.QueueOptions, FilterOption{
 			Value: item.value, Label: item.label, Selected: q.Queue == item.value,

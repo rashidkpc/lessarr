@@ -458,11 +458,13 @@ func (d *Daemon) Unskip(path string) error {
 	if err != nil {
 		return err
 	}
-	if reason != queue.OperatorSkipReason {
-		return fmt.Errorf("file is not skipped by the operator")
+	if reason != "" && reason != queue.OperatorSkipReason {
+		return fmt.Errorf("file has a non-skip suppression")
 	}
-	if err := d.store.ClearSuppression(path); err != nil {
-		return err
+	if reason == queue.OperatorSkipReason {
+		if err := d.store.ClearSuppression(path); err != nil {
+			return err
+		}
 	}
 	requeued, err := d.store.RequeueSkipped(path, time.Now())
 	if err != nil {
@@ -471,6 +473,9 @@ func (d *Daemon) Unskip(path string) error {
 	if requeued {
 		fmt.Fprintf(d.log, "unskipped and requeued: %s\n", path)
 	} else {
+		if err := d.store.MarkForRescan(path); err != nil {
+			return err
+		}
 		fmt.Fprintf(d.log, "unskipped; queued on next scan: %s\n", path)
 	}
 	return nil

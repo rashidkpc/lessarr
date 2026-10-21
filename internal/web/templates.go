@@ -92,6 +92,9 @@ code { background:#f1ece2; color:#1f1f1f; border-radius:4px; padding:.08rem .3re
 td.actions { white-space:nowrap; }
 td.actions form { display:inline-block; margin:0 .25rem 0 0; }
 td.actions form:last-child { margin-right:0; }
+td.actions-stack { white-space:normal; }
+td.actions-stack form { display:block; margin:0 0 .3rem 0; }
+td.actions-stack form:last-child { margin-bottom:0; }
 .notice { margin:1rem 0; border-color:#fde68a; background:#fffbeb; color:#92400e; }
 .paused { background:var(--warn-bg); color:var(--warn); border:1px solid #fde68a; border-radius:8px; padding:.5rem .7rem; margin-bottom:1rem; font-size:.9rem; }
 .bar { height:10px; background:#e9e1d3; border-radius:999px; overflow:hidden; margin:.7rem 0 .4rem; }
@@ -256,7 +259,7 @@ const dashboardHTML = `{{define "dashboard"}}
 
 {{else if eq .Tab "failed"}}
 <div class="table-wrap"><table>
-<tr><th>#</th><th>File</th><th>Library</th><th class="nowrap">Size</th><th>Error</th><th>When</th><th></th></tr>
+<tr><th>#</th><th>File</th><th>Library</th><th class="nowrap">Size</th><th>Error</th><th class="nowrap">When</th><th></th></tr>
 {{range .Failed}}
 <tr>
 <td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
@@ -264,8 +267,8 @@ const dashboardHTML = `{{define "dashboard"}}
 <td>{{.Library}}</td>
 <td class="nowrap">{{sizePair .SizeBefore .SizeAfter}}</td>
 <td>{{if .Restored}}<span class="badge warn">restored</span> <span class="muted">{{.Error}}</span>{{else}}<span class="err">{{.Error}}</span>{{end}}</td>
-<td class="muted">{{when .UpdatedAt}}</td>
-<td class="actions">
+<td class="muted nowrap">{{when .UpdatedAt}}</td>
+<td class="actions actions-stack">
 {{if .Retryable}}<form method="post" action="/api/jobs/{{.ID}}/retry?tab={{$.Tab}}" onsubmit="return confirm('Retry this job with current settings?')"><button class="secondary small" type="submit">Retry</button></form>{{end}}
 <form method="post" action="/api/jobs/{{.ID}}/skip?tab=failed" onsubmit="return confirm('Mark this file skipped and stop retrying it? You can unskip it from the Files page.')"><button class="secondary small" type="submit">Skip</button></form>
 </td>
@@ -329,7 +332,7 @@ const filesHTML = `{{define "files"}}{{template "head" .}}
 <div class="table-wrap files-table-wrap">
 <table class="files-table">
 <colgroup><col><col class="col-size"><col class="col-queue"><col class="col-decision"><col class="col-checked"></colgroup>
-<thead><tr><th>File</th><th class="size">Size</th><th>Status</th><th class="decision">Decision</th><th class="checked">Checked</th></tr></thead>
+<thead><tr><th>File</th><th class="size nowrap">Size</th><th>Status</th><th class="decision">Decision</th><th class="checked nowrap">Checked</th></tr></thead>
 <tbody>
 {{range .Rows}}
 <tr>
