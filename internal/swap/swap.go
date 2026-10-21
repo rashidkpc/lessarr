@@ -65,16 +65,19 @@ func ReplacePrepared(source, output string) (string, error) {
 	}
 	backup := filepath.Join(trashDir, fmt.Sprintf("%d-%s", time.Now().UnixNano(), filepath.Base(source)))
 	if err := os.Link(source, backup); err != nil {
+		_ = os.Remove(trashDir)
 		return "", fmt.Errorf("preserve original in trash: %w", err)
 	}
 	if err := SyncDir(trashDir); err != nil {
 		_ = os.Remove(backup)
+		_ = os.Remove(trashDir)
 		return "", fmt.Errorf("sync trash directory: %w", err)
 	}
 
 	if err := os.Rename(output, source); err != nil {
 		_ = os.Remove(backup)
 		_ = SyncDir(trashDir)
+		_ = os.Remove(trashDir)
 		return "", fmt.Errorf("atomic replacement: %w", err)
 	}
 	if err := SyncDir(filepath.Dir(source)); err != nil {

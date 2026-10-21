@@ -178,3 +178,45 @@ func TestDeleteOrphanRefusesTrackedAndRemovesOrphan(t *testing.T) {
 		t.Error("orphan still exists")
 	}
 }
+
+func TestPruneEmptyRemovesOnlyStaleEmptyWriteLibraries(t *testing.T) {
+	dir := t.TempDir()
+	empty := filepath.Join(dir, ".lessarr-trash")
+	if err := os.Mkdir(empty, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(empty, past, past); err != nil {
+		t.Fatal(err)
+	}
+	nonEmpty := backupFile(t, t.TempDir(), "keep.mkv", 10)
+	_ = os.Chtimes(filepath.Dir(nonEmpty), past, past)
+	libs := []config.Library{{Name: "Movies", Path: dir, Write: true}}
+	removed, err := PruneEmpty(libs, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 1 {
+		t.Fatalf("removed = %d", removed)
+	}
+	if _, err := os.Stat(empty); !os.IsNotExist(err) {
+		t.Error("empty trash directory still exists")
+	}
+	if _, err := os.Stat(nonEmpty); err != nil {
+		t.Error("non-empty trash was removed")
+	}
+
+	// Observe-only libraries must not be modified.
+	empty2 := filepath.Join(t.TempDir(), ".lessarr-trash")
+	if err := os.Mkdir(empty2, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chtimes(empty2, past, past)
+	removed, err = PruneEmpty([]config.Library{{Name: "TV", Path: filepath.Dir(empty2), Write: false}}, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed != 0 {
+		t.Fatal("observed-only library was modified")
+	}
+}

@@ -543,6 +543,7 @@ func (d *Daemon) Retry(jobID int64) error {
 		if err := os.Rename(source, job.Path); err != nil {
 			return fmt.Errorf("restore original: %w", err)
 		}
+		_ = os.Remove(filepath.Dir(source))
 		if err := d.store.ClearBackup(job.ID); err != nil {
 			fmt.Fprintf(d.log, "retry %d: clear backup: %v\n", job.ID, err)
 		}
@@ -573,6 +574,7 @@ func (d *Daemon) trashLoop(ctx context.Context) {
 	d.cleanupTemps()
 	d.pruneComparisons()
 	d.pruneTrash(ctx)
+	d.pruneEmptyTrash()
 	ticker := time.NewTicker(6 * time.Hour)
 	defer ticker.Stop()
 	for {
@@ -583,6 +585,7 @@ func (d *Daemon) trashLoop(ctx context.Context) {
 			d.cleanupTemps()
 			d.pruneComparisons()
 			d.pruneTrash(ctx)
+			d.pruneEmptyTrash()
 			if err := d.store.Backup(d.cfg.Server.DB + ".bak"); err != nil {
 				fmt.Fprintf(d.log, "database backup: %v\n", err)
 			}
@@ -741,6 +744,17 @@ func (d *Daemon) notifyEvent(payload map[string]any) {
 			fmt.Fprintf(d.log, "webhook %s: status %s\n", label, resp.Status)
 		}
 	}()
+}
+
+func (d *Daemon) pruneEmptyTrash() {
+	n, err := trash.PruneEmpty(d.cfg.Libraries, time.Now().Add(-time.Hour))
+	if err != nil {
+		fmt.Fprintf(d.log, "empty trash: %v\n", err)
+		return
+	}
+	if n > 0 {
+		fmt.Fprintf(d.log, "empty trash: removed %d directory/directories\n", n)
+	}
 }
 
 func (d *Daemon) pruneComparisons() {

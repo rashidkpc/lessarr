@@ -174,6 +174,45 @@ func BuildReport(store Store, libraries []config.Library) (Report, error) {
 	return report, nil
 }
 
+// PruneEmpty removes empty, stale .lessarr-trash directories. It only touches
+// write-enabled libraries and leaves recently created directories for active
+// swaps.
+func PruneEmpty(libraries []config.Library, before time.Time) (int, error) {
+	removed := 0
+	var firstErr error
+	for _, lib := range libraries {
+		if !lib.Write {
+			continue
+		}
+		err := filepath.WalkDir(lib.Path, func(path string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if !entry.IsDir() || entry.Name() != trashDirName {
+				return nil
+			}
+			info, err := entry.Info()
+			if err != nil || info.ModTime().After(before) {
+				return filepath.SkipDir
+			}
+			entries, err := os.ReadDir(path)
+			if err != nil || len(entries) > 0 {
+				return filepath.SkipDir
+			}
+			if err := os.Remove(path); err == nil {
+				removed++
+			} else if firstErr == nil {
+				firstErr = err
+			}
+			return filepath.SkipDir
+		})
+		if err != nil && firstErr == nil && !errors.Is(err, fs.ErrNotExist) {
+			firstErr = err
+		}
+	}
+	return removed, firstErr
+}
+
 // Summary reports the existing backups without deleting anything.
 func Summary(store Store) (Stats, error) {
 	jobs, err := store.Backups()
