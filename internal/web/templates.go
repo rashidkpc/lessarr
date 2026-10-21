@@ -93,7 +93,6 @@ td.actions form:last-child { margin-right:0; }
 .chart .y-axis { position:absolute; left:0; top:0; bottom:0; width:15.625%; pointer-events:none; }
 .chart .y-axis span { position:absolute; right:6px; transform:translateY(-50%); color:var(--muted); font-size:10px; white-space:nowrap; }
 .chart .line { fill:none; stroke:var(--accent); stroke-width:2; vector-effect:non-scaling-stroke; }
-.chart .area { fill:var(--accent-soft); opacity:.8; stroke:none; }
 .chart circle { fill:var(--accent); }
 .chart .axis-line { stroke:var(--border); stroke-width:1; vector-effect:non-scaling-stroke; }
 .chart .grid { stroke:var(--border); stroke-width:1; vector-effect:non-scaling-stroke; opacity:.65; }
@@ -448,7 +447,6 @@ const metricsHTML = `{{define "metrics"}}{{template "head"}}
 <svg viewBox="0 0 640 180" preserveAspectRatio="none" role="img">
 <line class="axis-line" x1="{{$chart.AxisLeft}}" y1="{{$chart.AxisTop}}" x2="{{$chart.AxisLeft}}" y2="{{$chart.AxisBottom}}"/>
 <line class="axis-line" x1="{{$chart.AxisLeft}}" y1="{{$chart.AxisBottom}}" x2="{{$chart.AxisRight}}" y2="{{$chart.AxisBottom}}"/>
-<path class="area" d="{{$chart.Area}}"/>
 {{range $chart.YTicks}}<line class="grid" x1="{{$chart.AxisLeft}}" y1="{{.Y}}" x2="{{$chart.AxisRight}}" y2="{{.Y}}"/>{{end}}
 <path class="line" d="{{$chart.Path}}"/>
 <circle cx="{{$chart.LastX}}" cy="{{$chart.LastY}}" r="3"/>

@@ -25,7 +25,6 @@ type Chart struct {
 	Title      string
 	Subtitle   string
 	Path       string
-	Area       string
 	MinLabel   string
 	MaxLabel   string
 	LastLabel  string
@@ -119,12 +118,9 @@ func buildChart(points []queue.Metric, title, subtitle string, value func(queue.
 			path += fmt.Sprintf(" L %.1f %.1f", x, y)
 		}
 	}
-	firstX, firstY := xFor(points[0].At), yFor(value(points[0]))
 	last := points[len(points)-1]
 	lastX, lastY := xFor(last.At), yFor(value(last))
 	chart.Path = path
-	chart.Area = fmt.Sprintf("M %.1f %.1f L %.1f %.1f L %.1f %.1f L %.1f %.1f Z",
-		firstX, height-bottom, firstX, firstY, lastX, lastY, lastX, height-bottom)
 	chart.MinLabel = format(minV)
 	chart.MaxLabel = format(maxV)
 	chart.LastLabel = format(value(last))
