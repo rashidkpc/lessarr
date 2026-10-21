@@ -595,6 +595,31 @@ func (s *Store) SavedSince(since time.Time) (int64, int, error) {
 	return saved, done, err
 }
 
+// LibraryTotals returns scanned file count and bytes across all libraries.
+func (s *Store) LibraryTotals() (int, int64, error) {
+	var files int
+	var bytes int64
+	err := s.db.QueryRow(`SELECT COUNT(*), COALESCE(SUM(size), 0) FROM files`).Scan(&files, &bytes)
+	return files, bytes, err
+}
+
+// CountReady counts pending jobs that a worker could claim now.
+func (s *Store) CountReady(now time.Time, writable ...string) (int, error) {
+	if len(writable) == 0 {
+		return 0, nil
+	}
+	query := `SELECT COUNT(*) FROM jobs WHERE state = 'pending' AND next_attempt_at <= ?
+		AND NOT EXISTS (SELECT 1 FROM file_suppressions WHERE path = jobs.path)
+		AND library IN (` + placeholders(len(writable)) + `)`
+	args := []any{now.Unix()}
+	for _, name := range writable {
+		args = append(args, name)
+	}
+	var n int
+	err := s.db.QueryRow(query, args...).Scan(&n)
+	return n, err
+}
+
 func (s *Store) FilesSummary() (map[string]Summary, error) {
 	rows, err := s.db.Query(`SELECT library, action, COUNT(*), COALESCE(SUM(size),0) FROM files GROUP BY library, action`)
 	if err != nil {

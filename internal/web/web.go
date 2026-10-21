@@ -336,15 +336,14 @@ type Status struct {
 	UpNext        []queue.Job
 	Done          []queue.Job
 	Failed        []queue.Job
+	LibraryFiles  int
+	LibraryBytes  int64
 	TrashFiles    int
 	TrashBytes    int64
 	TrashLimitGB  int64
-	Saved24h      int64
-	Done24h       int
-	Saved7d       int64
-	Done7d        int
-	SavedTotal    int64
-	DoneTotal     int
+	Saved30d      int64
+	Done30d       int
+	Ready         int
 }
 
 func (s *Server) collect() (Status, error) {
@@ -384,15 +383,11 @@ func (s *Server) collect() (Status, error) {
 		return Status{}, err
 	}
 	now := time.Now()
-	saved24h, done24h, err := s.store.SavedSince(now.Add(-24 * time.Hour))
+	saved30d, done30d, err := s.store.SavedSince(now.Add(-30 * 24 * time.Hour))
 	if err != nil {
 		return Status{}, err
 	}
-	saved7d, done7d, err := s.store.SavedSince(now.Add(-7 * 24 * time.Hour))
-	if err != nil {
-		return Status{}, err
-	}
-	savedTotal, doneTotal, err := s.store.SavedSince(time.Time{})
+	libraryFiles, libraryBytes, err := s.store.LibraryTotals()
 	if err != nil {
 		return Status{}, err
 	}
@@ -411,12 +406,17 @@ func (s *Server) collect() (Status, error) {
 			writable = append(writable, lib.Name)
 		}
 	}
-	upNext, err := s.store.NextQueued(time.Now(), 5, writable...)
+	now = time.Now()
+	upNext, err := s.store.NextQueued(now, 5, writable...)
 	if err != nil {
 		return Status{}, err
 	}
 	if upNext == nil {
 		upNext = []queue.Job{}
+	}
+	ready, err := s.store.CountReady(now, writable...)
+	if err != nil {
+		return Status{}, err
 	}
 	var progress *Progress
 	if s.progress != nil {
@@ -426,9 +426,9 @@ func (s *Server) collect() (Status, error) {
 		Version: s.version, Paused: paused, Counts: counts,
 		Current: current, Progress: progress, Queued: queued, UpNext: upNext,
 		Done: done, Failed: failed,
+		LibraryFiles: libraryFiles, LibraryBytes: libraryBytes,
 		TrashFiles: trashStats.Files, TrashBytes: trashStats.Bytes, TrashLimitGB: s.cfg.Trash.MaxSizeGB,
-		Saved24h: saved24h, Done24h: done24h, Saved7d: saved7d, Done7d: done7d,
-		SavedTotal: savedTotal, DoneTotal: doneTotal, WritesEnabled: len(writable) > 0,
+		Saved30d: saved30d, Done30d: done30d, Ready: ready, WritesEnabled: len(writable) > 0,
 	}
 	return status, nil
 }

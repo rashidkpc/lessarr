@@ -146,10 +146,10 @@ const dashboardHTML = `{{define "dashboard"}}
 {{if .Paused}}<div class="paused">Paused. The current job will finish; new jobs will not be claimed until resumed.</div>{{end}}
 
 <div class="stats">
-<div class="stat"><div class="label">Reclaimed · 24h</div><div class="value">{{bytes .Saved24h}}</div><div class="sub">{{.Done24h}} job(s)</div></div>
-<div class="stat"><div class="label">Reclaimed · 7d</div><div class="value">{{bytes .Saved7d}}</div><div class="sub">{{.Done7d}} job(s)</div></div>
-<div class="stat"><div class="label">Total reclaimed</div><div class="value">{{bytes .SavedTotal}}</div><div class="sub">{{.DoneTotal}} file(s)</div></div>
+<div class="stat"><div class="label">Reclaimed · 30d</div><div class="value">{{bytes .Saved30d}}</div><div class="sub">{{.Done30d}} job(s)</div></div>
+<div class="stat"><div class="label">Library</div><div class="value">{{bytes .LibraryBytes}}</div><div class="sub">{{.LibraryFiles}} file(s)</div></div>
 <div class="stat"><div class="label">Trash</div><div class="value">{{bytes .TrashBytes}}</div><div class="sub">{{.TrashFiles}} file(s){{if gt .TrashLimitGB 0}} · cap {{.TrashLimitGB}} GB{{end}} · <a href="/trash">report</a></div></div>
+<div class="stat"><div class="label">Queue</div><div class="value">{{.Counts.Pending}}</div><div class="sub">{{.Ready}} ready to run</div></div>
 </div>
 
 <div class="tabs">

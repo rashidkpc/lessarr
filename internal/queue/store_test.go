@@ -532,3 +532,33 @@ func TestNextQueuedOnlyWritableLibraries(t *testing.T) {
 		t.Fatalf("next = %+v", jobs)
 	}
 }
+
+func TestLibraryTotalsAndReadyCount(t *testing.T) {
+	s := openTest(t)
+	if err := s.PutFile(File{Path: "/movies/a.mkv", Library: "Movies", Size: 10}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutFile(File{Path: "/movies/b.mkv", Library: "Movies", Size: 20}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Enqueue(Job{Path: "/tv/a.mkv", Library: "TV", Action: "transcode", SizeBefore: 10}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Enqueue(Job{Path: "/movies/a.mkv", Library: "Movies", Action: "transcode", SizeBefore: 10}); err != nil {
+		t.Fatal(err)
+	}
+	files, bytes, err := s.LibraryTotals()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files != 2 || bytes != 30 {
+		t.Fatalf("library totals = %d files, %d bytes", files, bytes)
+	}
+	ready, err := s.CountReady(time.Now(), "Movies")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ready != 1 {
+		t.Fatalf("ready = %d, want 1", ready)
+	}
+}

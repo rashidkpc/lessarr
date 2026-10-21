@@ -40,7 +40,7 @@ func TestStatusPageRenders(t *testing.T) {
 		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
 	}
 	body := w.Body.String()
-	for _, want := range []string{"lessarr", "Dashboard", "Queued", "Done", "Reclaimed"} {
+	for _, want := range []string{"lessarr", "Dashboard", "Queued", "Done", "Reclaimed · 30d", "Library", "Queue"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page missing %q", want)
 		}
