@@ -11,9 +11,10 @@ import (
 
 type FileView struct {
 	queue.FileRow
-	QueueLabel string
-	QueueClass string
-	CanUnskip  bool
+	QueueLabel    string
+	QueueClass    string
+	CanUnskip     bool
+	CanPrioritize bool
 }
 
 type FilterOption struct {
@@ -88,6 +89,7 @@ func (s *Server) filesPage(w http.ResponseWriter, r *http.Request) {
 			view.QueueClass = "warn"
 		case row.JobID > 0:
 			view.QueueLabel = row.JobState
+			view.CanPrioritize = row.JobState == string(queue.Pending)
 			if row.JobState == string(queue.Running) {
 				view.QueueClass = "ok"
 			} else {

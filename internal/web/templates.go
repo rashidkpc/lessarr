@@ -91,6 +91,7 @@ select { padding-right:1.8rem; }
 .file-meta { font-size:.78rem; color:var(--muted); margin-top:.2rem; }
 .files-footer { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-top:.7rem; }
 .files-footer .pager { display:flex; gap:.8rem; }
+.trash-actions { display:flex; justify-content:flex-end; margin:.9rem 0; }
 .page-link { white-space:nowrap; }
 code { background:#f1ece2; color:#1f1f1f; border-radius:4px; padding:.08rem .3rem; font-size:.9em; word-break:break-word; }
 .path { word-break:break-all; }
@@ -208,7 +209,7 @@ const dashboardHTML = `{{define "dashboard"}}
 {{if .UpNext}}
 <h2>Up next</h2>
 <div class="table-wrap"><table>
-<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th class="nowrap">Size</th><th class="nowrap">Queued</th></tr>
+<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th class="nowrap">Size</th><th class="nowrap">Queued</th><th></th></tr>
 {{range .UpNext}}
 <tr>
 <td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
@@ -226,7 +227,7 @@ const dashboardHTML = `{{define "dashboard"}}
 
 {{else if eq .Tab "queued"}}
 <div class="table-wrap"><table>
-<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th class="nowrap">Size</th><th class="nowrap">Queued</th></tr>
+<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th class="nowrap">Size</th><th class="nowrap">Queued</th><th></th></tr>
 {{range .Queued}}
 <tr>
 <td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
@@ -235,9 +236,10 @@ const dashboardHTML = `{{define "dashboard"}}
 <td><span class="badge">{{.Action}}</span></td>
 <td class="nowrap">{{sizeEstimate .SizeBefore .EstimatedBytes .SavingsUnmeasured}}</td>
 <td class="muted nowrap">{{when .CreatedAt}}</td>
+<td class="actions"><form method="post" action="/api/jobs/{{.ID}}/prioritize?tab=queued"><button class="secondary small" type="submit" title="Move this job to the top of the queue">Prioritize</button></form></td>
 </tr>
 {{else}}
-<tr><td colspan="6" class="muted">Queue is empty.</td></tr>
+<tr><td colspan="7" class="muted">Queue is empty.</td></tr>
 {{end}}
 </table></div>
 {{if gt .Counts.Pending (len .Queued)}}<div class="muted" style="margin-top:.8rem"><a href="/files?queue=pending">View all queued files</a></div>{{end}}
@@ -347,7 +349,7 @@ const filesHTML = `{{define "files"}}{{template "head" .}}
 <div class="file-meta">{{.Library}} · {{.Action}}{{if .JobID}} · <a href="/jobs/{{.JobID}}">#{{.JobID}}</a>{{end}}</div>
 </td>
 <td class="size nowrap">{{sizeEstimate .Size .EstimatedBytes .SavingsUnmeasured}}</td>
-<td class="queue">{{if .JobID}}<a href="/jobs/{{.JobID}}"><span class="badge {{.QueueClass}}">{{.QueueLabel}}</span></a>{{else if .QueueLabel}}<span class="badge {{.QueueClass}}">{{.QueueLabel}}</span>{{end}}{{if .CanUnskip}}<form method="post" action="/api/files/unskip" onsubmit="return confirm('Allow lessarr to process this file again?')"><input type="hidden" name="path" value="{{.Path}}"><button class="secondary small" type="submit">Unskip</button></form>{{end}}</td>
+<td class="queue">{{if .JobID}}<a href="/jobs/{{.JobID}}"><span class="badge {{.QueueClass}}">{{.QueueLabel}}</span></a>{{else if .QueueLabel}}<span class="badge {{.QueueClass}}">{{.QueueLabel}}</span>{{end}}{{if .CanPrioritize}}<form method="post" action="/api/jobs/{{.JobID}}/prioritize"><button class="secondary small" type="submit" title="Move this job to the top of the queue">Prioritize</button></form>{{end}}{{if .CanUnskip}}<form method="post" action="/api/files/unskip" onsubmit="return confirm('Allow lessarr to process this file again?')"><input type="hidden" name="path" value="{{.Path}}"><button class="secondary small" type="submit">Unskip</button></form>{{end}}</td>
 <td class="decision muted" title="{{.Reason}}">{{.Reason}}</td>
 <td class="checked muted nowrap">{{when .CheckedAt}}</td>
 </tr>
@@ -493,8 +495,14 @@ const trashHTML = `{{define "trash"}}{{template "head" .}}
 
 <p class="muted">
 Policy: keep the newest original per source, retention {{.Retention}}, cap {{.TrashLimit}} GB.
-Orphans are preserved, not deleted automatically — after database loss they may be the only recoverable copy.
+Orphans are preserved by default — after database loss they may be the only recoverable copy.
 </p>
+
+<div class="trash-actions">
+<form method="post" action="/api/trash/empty" onsubmit="return confirm('Permanently delete every tracked and orphan trash item? This cannot be undone.')">
+<button class="skip" type="submit">Empty trash</button>
+</form>
+</div>
 
 <h2>Trash locations</h2>
 {{if .Report.Locations}}
@@ -508,6 +516,23 @@ Orphans are preserved, not deleted automatically — after database loss they ma
 <div class="panel muted">No <code>.lessarr-trash</code> directories found in configured libraries.</div>
 {{end}}
 
+<h2>Tracked originals</h2>
+{{if .Report.TrackedItems}}
+<div class="table-wrap"><table>
+<tr><th class="nowrap">Size</th><th>File</th><th class="nowrap">Job</th><th class="nowrap">Modified</th><th></th></tr>
+{{range .Report.TrackedItems}}
+<tr><td class="nowrap">{{bytes .Size}}</td><td class="path"><code>{{.Path}}</code></td><td><a href="/jobs/{{.JobID}}">#{{.JobID}}</a></td><td class="muted nowrap">{{when .ModTime}}</td><td class="actions">
+<form method="post" action="/api/trash/delete" onsubmit="return confirm('Permanently delete this retained original? This cannot be undone.')">
+<input type="hidden" name="path" value="{{.Path}}">
+<button class="skip small" type="submit">Delete</button>
+</form>
+</td></tr>
+{{end}}
+</table></div>
+{{else}}
+<div class="panel muted">No tracked originals.</div>
+{{end}}
+
 <h2>Orphan files</h2>
 {{if .Report.OrphanFiles}}
 <p class="muted">Files in a <code>.lessarr-trash</code> directory that no completed job references.</p>
@@ -517,7 +542,7 @@ Orphans are preserved, not deleted automatically — after database loss they ma
 <tr><td class="nowrap">{{bytes .Size}}</td><td class="path"><code>{{.Path}}</code></td><td class="muted nowrap">{{when .ModTime}}</td><td class="actions">
 <form method="post" action="/api/trash/delete" onsubmit="return confirm('Delete this orphan permanently? This cannot be undone.')">
 <input type="hidden" name="path" value="{{.Path}}">
-<button class="secondary small" type="submit">Delete</button>
+<button class="skip small" type="submit">Delete</button>
 </form>
 </td></tr>
 {{end}}

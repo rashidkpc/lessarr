@@ -134,7 +134,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 	fmt.Fprintf(d.log, "backend: %s (%s)\n", selection.Backend.Name, selection.Reason)
 
-	handler := web.New(d.cfg, d.store, o.Version, d.currentProgress, d.Retry, d.Restore, d.Skip, d.Unskip)
+	handler := web.New(d.cfg, d.store, o.Version, d.currentProgress, d.Retry, d.Restore, d.Skip, d.Unskip, d.DeleteTrashItem, d.EmptyTrash)
 	server := &http.Server{
 		Addr:              d.cfg.Server.Listen,
 		Handler:           handler,
@@ -409,6 +409,20 @@ func (d *Daemon) runJob(ctx context.Context, n int, job *queue.Job) {
 		d.enqueueCompare(job.ID)
 	}
 	d.pruneTrash(ctx)
+}
+
+// DeleteTrashItem removes one tracked or orphan trash file.
+func (d *Daemon) DeleteTrashItem(path string) error {
+	d.trashMu.Lock()
+	defer d.trashMu.Unlock()
+	return trash.DeleteTrashItem(d.store, d.cfg.Libraries, path)
+}
+
+// EmptyTrash removes every trash file in configured libraries.
+func (d *Daemon) EmptyTrash() (trash.Stats, error) {
+	d.trashMu.Lock()
+	defer d.trashMu.Unlock()
+	return trash.Empty(d.store, d.cfg.Libraries)
 }
 
 // Skip marks a failed job as an operator skip. It disappears from the failed

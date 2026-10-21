@@ -211,6 +211,7 @@ func (s *Store) migrate() error {
 			size_after INTEGER NOT NULL DEFAULT 0,
 			estimated_bytes INTEGER NOT NULL DEFAULT 0,
 			savings_unmeasured INTEGER NOT NULL DEFAULT 0,
+			priority INTEGER NOT NULL DEFAULT 0,
 			attempts INTEGER NOT NULL DEFAULT 0,
 			error TEXT NOT NULL DEFAULT '',
 			backup TEXT NOT NULL DEFAULT '',
@@ -254,6 +255,9 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := s.ensureColumn("jobs", "savings_unmeasured", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("jobs", "priority", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
 	if err := s.ensureColumn("file_suppressions", "size", "INTEGER NOT NULL DEFAULT 0"); err != nil {
@@ -407,7 +411,7 @@ func (s *Store) Claim(now time.Time, writable ...string) (*Job, error) {
 		}
 	}
 	query += ` AND NOT EXISTS (SELECT 1 FROM file_suppressions WHERE path = jobs.path)`
-	query += ` ORDER BY id LIMIT 1`
+	query += ` ORDER BY priority DESC, id ASC LIMIT 1`
 
 	var j Job
 	var created, updated, started, finished, unmeasured int64
@@ -885,6 +889,24 @@ func (s *Store) DoneTranscodes() ([]Job, error) {
 	return jobs, rows.Err()
 }
 
+// Prioritize moves a pending job to the front of the queue. Newer priorities
+// win ties, so clicking again on another job makes that one next.
+func (s *Store) Prioritize(id int64, now time.Time) error {
+	res, err := s.db.Exec(`UPDATE jobs SET priority=?, updated_at=? WHERE id=? AND state='pending'`,
+		now.UnixNano(), now.Unix(), id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return fmt.Errorf("job %d is not pending", id)
+	}
+	return nil
+}
+
 // NextQueued returns the next claimable jobs for writable libraries.
 func (s *Store) NextQueued(now time.Time, limit int, writable ...string) ([]Job, error) {
 	if limit <= 0 || len(writable) == 0 {
@@ -894,7 +916,7 @@ func (s *Store) NextQueued(now time.Time, limit int, writable ...string) ([]Job,
 		attempts, error, backup, created_at, updated_at, started_at, finished_at
 		FROM jobs WHERE state = 'pending' AND next_attempt_at <= ?
 		AND NOT EXISTS (SELECT 1 FROM file_suppressions WHERE path = jobs.path)
-		AND library IN (` + placeholders(len(writable)) + `) ORDER BY id LIMIT ?`
+		AND library IN (` + placeholders(len(writable)) + `) ORDER BY priority DESC, id ASC LIMIT ?`
 	args := []any{now.Unix()}
 	for _, name := range writable {
 		args = append(args, name)
@@ -921,7 +943,9 @@ func (s *Store) ByState(state State, limit int) ([]Job, error) {
 		limit = 25
 	}
 	order := "id DESC"
-	if state == Pending || state == Running {
+	if state == Pending {
+		order = "priority DESC, id ASC"
+	} else if state == Running {
 		order = "id ASC"
 	}
 	rows, err := s.db.Query(`SELECT id, path, library, state, action, codec, reason, size_before, size_after, estimated_bytes, savings_unmeasured,

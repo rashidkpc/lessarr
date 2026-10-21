@@ -220,3 +220,40 @@ func TestPruneEmptyRemovesOnlyStaleEmptyWriteLibraries(t *testing.T) {
 		t.Fatal("observed-only library was modified")
 	}
 }
+
+func TestDeleteTrashItemClearsTrackedBackup(t *testing.T) {
+	lib := t.TempDir()
+	path := backupFile(t, lib, "tracked.mkv", 10)
+	store := &fakeStore{jobs: []queue.Job{{ID: 7, Path: "/media/tracked.mkv", Backup: path}}}
+	if err := DeleteTrashItem(store, []config.Library{{Name: "Movies", Path: lib}}, path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("tracked trash item still exists")
+	}
+	if !store.cleared[7] {
+		t.Error("tracked backup reference was not cleared")
+	}
+}
+
+func TestEmptyRemovesTrackedAndOrphan(t *testing.T) {
+	lib := t.TempDir()
+	tracked := backupFile(t, lib, "tracked.mkv", 10)
+	orphan := backupFile(t, lib, "orphan.mkv", 20)
+	store := &fakeStore{jobs: []queue.Job{{ID: 1, Path: "/media/tracked.mkv", Backup: tracked}}}
+	stats, err := Empty(store, []config.Library{{Name: "Movies", Path: lib}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.DeletedFiles != 2 || stats.Freed != 30 {
+		t.Fatalf("stats = %+v", stats)
+	}
+	for _, path := range []string{tracked, orphan} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("%s still exists", path)
+		}
+	}
+	if !store.cleared[1] {
+		t.Error("tracked backup reference was not cleared")
+	}
+}

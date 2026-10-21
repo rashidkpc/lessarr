@@ -35,6 +35,15 @@ type Entry struct {
 	ModTime time.Time
 }
 
+// Item is one retained original or orphan file on disk.
+type Item struct {
+	Path    string
+	Size    int64
+	ModTime time.Time
+	Tracked bool
+	JobID   int64
+}
+
 // Location is one .lessarr-trash directory on disk.
 type Location struct {
 	Path     string
@@ -59,6 +68,8 @@ type Missing struct {
 type Report struct {
 	ScannedDirs  int
 	Locations    []Location
+	Items        []Item
+	TrackedItems []Item
 	TrackedFiles int
 	TrackedBytes int64
 	OrphanFiles  []Entry
@@ -141,8 +152,13 @@ func BuildReport(store Store, libraries []config.Library) (Report, error) {
 				if fi.ModTime().After(loc.Modified) {
 					loc.Modified = fi.ModTime()
 				}
-				if _, ok := known[path]; ok {
+				item := Item{Path: path, Size: fi.Size(), ModTime: fi.ModTime()}
+				if job, ok := known[path]; ok {
+					item.Tracked = true
+					item.JobID = job.ID
 					loc.Tracked++
+					report.Items = append(report.Items, item)
+					report.TrackedItems = append(report.TrackedItems, item)
 					continue
 				}
 				if seenOrphans[path] {
@@ -150,6 +166,7 @@ func BuildReport(store Store, libraries []config.Library) (Report, error) {
 				}
 				seenOrphans[path] = true
 				loc.Orphans++
+				report.Items = append(report.Items, item)
 				report.OrphanFiles = append(report.OrphanFiles, Entry{
 					Path: path, Size: fi.Size(), ModTime: fi.ModTime(),
 				})
@@ -164,6 +181,12 @@ func BuildReport(store Store, libraries []config.Library) (Report, error) {
 	}
 	sort.Slice(report.Locations, func(i, j int) bool {
 		return report.Locations[i].Path < report.Locations[j].Path
+	})
+	sort.Slice(report.Items, func(i, j int) bool {
+		return report.Items[i].Path < report.Items[j].Path
+	})
+	sort.Slice(report.TrackedItems, func(i, j int) bool {
+		return report.TrackedItems[i].Path < report.TrackedItems[j].Path
 	})
 	sort.Slice(report.OrphanFiles, func(i, j int) bool {
 		return report.OrphanFiles[i].ModTime.After(report.OrphanFiles[j].ModTime)
@@ -332,37 +355,73 @@ func DeleteOrphan(store Store, libraries []config.Library, path string) error {
 	if err != nil {
 		return err
 	}
-	found := false
 	for _, orphan := range report.OrphanFiles {
 		if filepath.Clean(orphan.Path) == clean {
-			found = true
-			break
+			_, err := removeItem(store, Item{Path: clean})
+			return err
 		}
 	}
-	if !found {
-		return fmt.Errorf("%s is not an orphan in a configured trash directory", clean)
-	}
-	jobs, err := store.Backups()
+	return fmt.Errorf("%s is not an orphan in a configured trash directory", clean)
+}
+
+// DeleteTrashItem removes one tracked or orphan item after re-validating it.
+func DeleteTrashItem(store Store, libraries []config.Library, path string) error {
+	clean := filepath.Clean(path)
+	report, err := BuildReport(store, libraries)
 	if err != nil {
 		return err
 	}
-	for _, job := range jobs {
-		if filepath.Clean(job.Backup) == clean {
-			return fmt.Errorf("%s is still referenced by job %d", clean, job.ID)
+	for _, item := range report.Items {
+		if filepath.Clean(item.Path) == clean {
+			_, err := removeItem(store, item)
+			return err
 		}
 	}
-	fi, err := os.Lstat(clean)
+	return fmt.Errorf("%s is not a trash item in a configured library", clean)
+}
+
+// Empty removes every regular file in configured trash directories. It clears
+// tracked backup references after each successful removal.
+func Empty(store Store, libraries []config.Library) (Stats, error) {
+	report, err := BuildReport(store, libraries)
 	if err != nil {
-		return err
+		return Stats{}, err
+	}
+	var stats Stats
+	var firstErr error
+	for _, item := range report.Items {
+		size, err := removeItem(store, item)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		stats.DeletedFiles++
+		stats.Freed += size
+	}
+	return stats, firstErr
+}
+
+func removeItem(store Store, item Item) (int64, error) {
+	path := filepath.Clean(item.Path)
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return 0, err
 	}
 	if !fi.Mode().IsRegular() || fi.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("%s is not a regular file", clean)
+		return 0, fmt.Errorf("%s is not a regular file", path)
 	}
-	if err := os.Remove(clean); err != nil {
-		return err
+	if err := os.Remove(path); err != nil {
+		return 0, err
 	}
-	_ = os.Remove(filepath.Dir(clean))
-	return nil
+	if item.Tracked {
+		if err := store.ClearBackup(item.JobID); err != nil {
+			return fi.Size(), err
+		}
+	}
+	_ = os.Remove(filepath.Dir(path))
+	return fi.Size(), nil
 }
 
 func backupTime(job queue.Job) time.Time {

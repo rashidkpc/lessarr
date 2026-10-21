@@ -20,15 +20,17 @@ import (
 )
 
 type Server struct {
-	cfg       *config.Config
-	store     *queue.Store
-	version   string
-	progress  func() *Progress
-	retry     func(int64) error
-	restore   func(int64) error
-	skip      func(int64) error
-	unskip    func(string) error
-	templates *template.Template
+	cfg         *config.Config
+	store       *queue.Store
+	version     string
+	progress    func() *Progress
+	retry       func(int64) error
+	restore     func(int64) error
+	skip        func(int64) error
+	unskip      func(string) error
+	deleteTrash func(string) error
+	emptyTrash  func() (trash.Stats, error)
+	templates   *template.Template
 }
 
 type Step struct {
@@ -57,10 +59,10 @@ type Progress struct {
 	Updated     time.Time
 }
 
-func New(cfg *config.Config, store *queue.Store, version string, progress func() *Progress, retry, restore, skip func(int64) error, unskip func(string) error) *Server {
+func New(cfg *config.Config, store *queue.Store, version string, progress func() *Progress, retry, restore, skip func(int64) error, unskip func(string) error, deleteTrash func(string) error, emptyTrash func() (trash.Stats, error)) *Server {
 	return &Server{
 		cfg: cfg, store: store, version: version, progress: progress, retry: retry,
-		restore: restore, skip: skip, unskip: unskip,
+		restore: restore, skip: skip, unskip: unskip, deleteTrash: deleteTrash, emptyTrash: emptyTrash,
 		templates: template.Must(template.New("root").Funcs(template.FuncMap{
 			"bytes":        humanBytes,
 			"when":         humanWhen,
@@ -104,13 +106,17 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/api/trash":
 		s.trashJSON(w)
 	case r.URL.Path == "/api/trash/delete" && r.Method == http.MethodPost:
-		s.deleteOrphan(w, r)
+		s.deleteTrashItem(w, r)
+	case r.URL.Path == "/api/trash/empty" && r.Method == http.MethodPost:
+		s.emptyAllTrash(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/jobs/") && strings.HasSuffix(r.URL.Path, "/retry") && r.Method == http.MethodPost:
 		s.retryJob(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/jobs/") && strings.HasSuffix(r.URL.Path, "/restore") && r.Method == http.MethodPost:
 		s.restoreJob(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/jobs/") && strings.HasSuffix(r.URL.Path, "/skip") && r.Method == http.MethodPost:
 		s.skipJob(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/jobs/") && strings.HasSuffix(r.URL.Path, "/prioritize") && r.Method == http.MethodPost:
+		s.prioritizeJob(w, r)
 	case r.URL.Path == "/api/files/unskip" && r.Method == http.MethodPost:
 		s.unskipFile(w, r)
 	case strings.HasPrefix(r.URL.Path, "/jobs/") && r.Method == http.MethodGet:
@@ -180,13 +186,29 @@ func (s *Server) trashJSON(w http.ResponseWriter) {
 	_ = enc.Encode(report)
 }
 
-func (s *Server) deleteOrphan(w http.ResponseWriter, r *http.Request) {
+func (s *Server) deleteTrashItem(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimSpace(r.FormValue("path"))
 	if path == "" {
 		http.Error(w, "path is required", http.StatusBadRequest)
 		return
 	}
-	if err := trash.DeleteOrphan(s.store, s.cfg.Libraries, path); err != nil {
+	if s.deleteTrash == nil {
+		http.Error(w, "trash deletion is unavailable", http.StatusInternalServerError)
+		return
+	}
+	if err := s.deleteTrash(path); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	http.Redirect(w, r, "/trash", http.StatusSeeOther)
+}
+
+func (s *Server) emptyAllTrash(w http.ResponseWriter, r *http.Request) {
+	if s.emptyTrash == nil {
+		http.Error(w, "trash emptying is unavailable", http.StatusInternalServerError)
+		return
+	}
+	if _, err := s.emptyTrash(); err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
@@ -275,6 +297,24 @@ func (s *Server) restoreJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, fmt.Sprintf("/jobs/%d", id), http.StatusSeeOther)
+}
+
+func (s *Server) prioritizeJob(w http.ResponseWriter, r *http.Request) {
+	idText := strings.Trim(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/jobs/"), "/prioritize"), "/")
+	id, err := strconv.ParseInt(idText, 10, 64)
+	if err != nil || id <= 0 {
+		http.Error(w, "invalid job id", http.StatusBadRequest)
+		return
+	}
+	if err := s.store.Prioritize(id, time.Now()); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	target := "/?tab=queued"
+	if referer, err := url.Parse(r.Referer()); err == nil && strings.EqualFold(referer.Host, r.Host) && strings.HasPrefix(referer.Path, "/") {
+		target = referer.RequestURI()
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 func (s *Server) skipJob(w http.ResponseWriter, r *http.Request) {
