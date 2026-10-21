@@ -284,10 +284,13 @@ func TestFilesPageShowsQueuedCandidate(t *testing.T) {
 		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
 	}
 	body := w.Body.String()
-	for _, want := range []string{"Example.mkv", "pending", "Queue", "All queues", "All libraries", "value=\"transcode\" selected", "Movies · transcode"} {
+	for _, want := range []string{"Example.mkv", "pending", "Queue", "All queues", "All libraries", "value=\"transcode\" selected", "Movies · transcode", "file-filters", "form.submit()"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("files page missing %q", want)
 		}
+	}
+	if strings.Contains(body, ">Apply<") {
+		t.Error("files page still has an Apply button")
 	}
 }
 

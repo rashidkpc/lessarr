@@ -76,8 +76,10 @@ type FileQuery struct {
 
 type FileRow struct {
 	File
-	JobID    int64
-	JobState string
+	JobID             int64
+	JobState          string
+	EstimatedBytes    int64
+	SavingsUnmeasured bool
 }
 
 type Counts struct {
@@ -518,7 +520,7 @@ func (s *Store) Files(q FileQuery) ([]FileRow, int, error) {
 	}
 	listArgs := append(append([]any(nil), args...), q.Limit, q.Offset)
 	rows, err := s.db.Query(`SELECT f.path, f.library, f.size, f.mtime, f.action, f.codes, f.reason, f.codec, f.checked_at,
-		COALESCE(j.id, 0), COALESCE(j.state, '')
+		COALESCE(j.id, 0), COALESCE(j.state, ''), COALESCE(j.estimated_bytes, 0), COALESCE(j.savings_unmeasured, 0)
 		FROM files f
 		LEFT JOIN jobs j ON j.path = f.path AND j.state IN ('pending','running')`+where+`
 		ORDER BY f.size DESC, f.path LIMIT ? OFFSET ?`, listArgs...)
@@ -529,11 +531,13 @@ func (s *Store) Files(q FileQuery) ([]FileRow, int, error) {
 	var out []FileRow
 	for rows.Next() {
 		var row FileRow
-		var mtime, checked int64
+		var mtime, checked, unmeasured int64
 		if err := rows.Scan(&row.Path, &row.Library, &row.Size, &mtime, &row.Action, &row.Codes,
-			&row.Reason, &row.Codec, &checked, &row.JobID, &row.JobState); err != nil {
+			&row.Reason, &row.Codec, &checked, &row.JobID, &row.JobState,
+			&row.EstimatedBytes, &unmeasured); err != nil {
 			return nil, 0, err
 		}
+		row.SavingsUnmeasured = unmeasured != 0
 		row.MTime = time.Unix(mtime, 0)
 		row.CheckedAt = time.Unix(checked, 0)
 		out = append(out, row)

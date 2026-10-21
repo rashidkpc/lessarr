@@ -66,7 +66,7 @@ input[type=search] { min-width:min(280px,100%); }
 .files-table { table-layout:fixed; }
 .files-table th, .files-table td { padding:.5rem .65rem; }
 .files-table th { position:sticky; top:0; z-index:1; }
-.files-table .col-size { width:86px; }
+.files-table .col-size { width:170px; }
 .files-table .col-queue { width:165px; }
 .files-table .col-decision { width:34%; }
 .files-table .col-checked { width:100px; }
@@ -187,14 +187,14 @@ const dashboardHTML = `{{define "dashboard"}}
 
 {{else if eq .Tab "queued"}}
 <div class="table-wrap"><table>
-<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th class="nowrap">Est Result</th><th class="nowrap">Queued</th></tr>
+<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th class="nowrap">Size</th><th class="nowrap">Queued</th></tr>
 {{range .Queued}}
 <tr>
 <td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
 <td class="path"><a href="/jobs/{{.ID}}"><code>{{.Path}}</code></a></td>
 <td>{{.Library}}</td>
 <td><span class="badge">{{.Action}}</span></td>
-<td class="nowrap">{{bytes .SizeBefore}} → {{if .SavingsUnmeasured}}<span class="muted">unmeasured</span>{{else if gt .EstimatedBytes 0}}{{bytes .EstimatedBytes}}{{else}}—{{end}}</td>
+<td class="nowrap">{{sizeEstimate .SizeBefore .EstimatedBytes .SavingsUnmeasured}}</td>
 <td class="muted nowrap">{{when .CreatedAt}}</td>
 </tr>
 {{else}}
@@ -205,14 +205,14 @@ const dashboardHTML = `{{define "dashboard"}}
 
 {{else if eq .Tab "done"}}
 <div class="table-wrap"><table>
-<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th class="nowrap">Result</th><th class="nowrap">When</th><th></th></tr>
+<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th class="nowrap">Size</th><th class="nowrap">When</th><th></th></tr>
 {{range .Done}}
 <tr>
 <td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
 <td class="path"><a href="/jobs/{{.ID}}"><code>{{.Path}}</code></a></td>
 <td>{{.Library}}</td>
 <td><span class="badge">{{.Action}}</span></td>
-<td class="nowrap">{{bytes .SizeBefore}}{{if gt .SizeAfter 0}} → {{bytes .SizeAfter}} <span class="muted">({{saved .SizeBefore .SizeAfter}})</span>{{end}}</td>
+<td class="nowrap">{{sizePair .SizeBefore .SizeAfter}}</td>
 <td class="muted nowrap">{{when .FinishedAt}}</td>
 <td class="actions">
 {{if .Restorable}}<form method="post" action="/api/jobs/{{.ID}}/restore" onsubmit="return confirm('Restore the original and discard the transcoded output? Automatic processing will be suppressed.')"><button class="secondary small" type="submit">Restore</button></form>{{end}}
@@ -226,18 +226,19 @@ const dashboardHTML = `{{define "dashboard"}}
 
 {{else if eq .Tab "failed"}}
 <div class="table-wrap"><table>
-<tr><th>#</th><th>File</th><th>Library</th><th>Error</th><th>When</th><th></th></tr>
+<tr><th>#</th><th>File</th><th>Library</th><th class="nowrap">Size</th><th>Error</th><th>When</th><th></th></tr>
 {{range .Failed}}
 <tr>
 <td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
 <td class="path"><a href="/jobs/{{.ID}}"><code>{{.Path}}</code></a></td>
 <td>{{.Library}}</td>
+<td class="nowrap">{{sizePair .SizeBefore .SizeAfter}}</td>
 <td>{{if .Restored}}<span class="badge warn">restored</span> <span class="muted">{{.Error}}</span>{{else}}<span class="err">{{.Error}}</span>{{end}}</td>
 <td class="muted">{{when .UpdatedAt}}</td>
 <td class="actions">{{if .Retryable}}<form method="post" action="/api/jobs/{{.ID}}/retry?tab={{$.Tab}}" onsubmit="return confirm('Retry this job with current settings?')"><button class="secondary small" type="submit">Retry</button></form>{{end}}</td>
 </tr>
 {{else}}
-<tr><td colspan="6" class="muted">No failures.</td></tr>
+<tr><td colspan="7" class="muted">No failures.</td></tr>
 {{end}}
 </table></div>
 {{end}}
@@ -282,12 +283,11 @@ const filesHTML = `{{define "files"}}{{template "head"}}
 <style>.wrap { max-width:1500px; }</style>
 <div class="files-head">
 <div><h1>Files</h1><div class="muted">{{.Total}} matching · {{.Counts.Pending}} queued{{if .HasFilters}} · {{.ActiveFilters}} filter(s){{end}}</div></div>
-<form class="file-filters" method="get" action="/files">
+<form class="file-filters" id="file-filters" method="get" action="/files">
 <select name="queue" aria-label="Queue filter">{{range .QueueOptions}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select>
 <select name="action" aria-label="Action filter">{{range .ActionOptions}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select>
 <select name="library" aria-label="Library filter">{{range .LibraryOptions}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select>
 <input type="search" name="q" value="{{.Query.Search}}" placeholder="Filter by path" aria-label="Path filter">
-<button type="submit">Apply</button>
 {{if .HasFilters}}<a class="clear" href="/files">Clear</a>{{end}}
 </form>
 </div>
@@ -303,7 +303,7 @@ const filesHTML = `{{define "files"}}{{template "head"}}
 {{if .JobID}}<a href="/jobs/{{.JobID}}"><code>{{.Path}}</code></a>{{else}}<code>{{.Path}}</code>{{end}}
 <div class="file-meta">{{.Library}} · {{.Action}}{{if .JobID}} · <a href="/jobs/{{.JobID}}">#{{.JobID}}</a>{{end}}</div>
 </td>
-<td class="size nowrap">{{bytes .Size}}</td>
+<td class="size nowrap">{{sizeEstimate .Size .EstimatedBytes .SavingsUnmeasured}}</td>
 <td class="queue">{{if .JobID}}<a href="/jobs/{{.JobID}}"><span class="badge {{.QueueClass}}">{{.QueueLabel}}</span></a>{{else if .QueueLabel}}<span class="badge {{.QueueClass}}">{{.QueueLabel}}</span>{{end}}</td>
 <td class="decision muted" title="{{.Reason}}">{{.Reason}}</td>
 <td class="checked muted nowrap">{{when .CheckedAt}}</td>
@@ -320,6 +320,28 @@ const filesHTML = `{{define "files"}}{{template "head"}}
 <span class="pager">{{if .PrevHref}}<a class="page-link" href="{{.PrevHref}}">← Previous</a>{{end}}{{if .NextHref}}<a class="page-link" href="{{.NextHref}}">Next →</a>{{end}}</span>
 </div>
 </div>
+<script>
+(function () {
+  var form = document.getElementById("file-filters");
+  if (!form) return;
+  var search = form.querySelector('input[name="q"]');
+  var timer;
+  form.querySelectorAll("select").forEach(function (select) {
+    select.addEventListener("change", function () { form.submit(); });
+  });
+  search.addEventListener("input", function () {
+    clearTimeout(timer);
+    timer = setTimeout(function () { form.submit(); }, 400);
+  });
+  search.addEventListener("keydown", function (event) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      clearTimeout(timer);
+      form.submit();
+    }
+  });
+})();
+</script>
 </body></html>{{end}}`
 
 const jobHTML = `{{define "job"}}{{template "head"}}
@@ -348,7 +370,7 @@ const jobHTML = `{{define "job"}}{{template "head"}}
 
 <h2>Result</h2>
 <div class="table-wrap"><table>
-<tr><th>Size</th><td>{{bytes .SizeBefore}}{{if and (eq .StateName "done") (gt .SizeAfter 0)}} → {{bytes .SizeAfter}} <span class="muted">({{saved .SizeBefore .SizeAfter}} smaller)</span>{{end}}</td></tr>
+<tr><th>Size</th><td>{{sizePair .SizeBefore .SizeAfter}}</td></tr>
 <tr><th>Attempts</th><td>{{.Attempts}}</td></tr>
 <tr><th>Created</th><td>{{.CreatedAt.Format "2006-01-02 15:04:05"}} <span class="muted">({{when .CreatedAt}})</span></td></tr>
 {{if not .StartedAt.IsZero}}<tr><th>Started</th><td>{{.StartedAt.Format "2006-01-02 15:04:05"}}</td></tr>{{end}}

@@ -59,11 +59,13 @@ func New(cfg *config.Config, store *queue.Store, version string, progress func()
 	return &Server{
 		cfg: cfg, store: store, version: version, progress: progress, retry: retry, restore: restore,
 		templates: template.Must(template.New("root").Funcs(template.FuncMap{
-			"bytes":  humanBytes,
-			"when":   humanWhen,
-			"saved":  savedPercent,
-			"dur":    humanDuration,
-			"sbytes": signedBytes,
+			"bytes":        humanBytes,
+			"when":         humanWhen,
+			"saved":        savedPercent,
+			"sizePair":     sizePair,
+			"sizeEstimate": sizeEstimate,
+			"dur":          humanDuration,
+			"sbytes":       signedBytes,
 		}).Parse(sharedHTML + dashboardHTML + pageHTML + filesHTML + jobHTML + trashHTML + metricsHTML)),
 	}
 }
@@ -416,6 +418,23 @@ func (s *Server) collect() (Status, error) {
 		}
 	}
 	return status, nil
+}
+
+func sizePair(before, after int64) string {
+	if after > 0 {
+		return humanBytes(before) + " → " + humanBytes(after)
+	}
+	return humanBytes(before)
+}
+
+func sizeEstimate(before, estimated int64, unmeasured bool) string {
+	if unmeasured {
+		return humanBytes(before) + " → unmeasured"
+	}
+	if estimated > 0 {
+		return humanBytes(before) + " → " + humanBytes(estimated)
+	}
+	return humanBytes(before)
 }
 
 func humanBytes(n int64) string {
