@@ -62,6 +62,12 @@ button { background:#1f1f1f; color:#fff; border:0; border-radius:8px; padding:.4
 button:hover { background:var(--accent); }
 button.secondary { background:#fffdf9; color:#1f1f1f; border:1px solid #1f1f1f; }
 button.secondary:hover { background:#fff1c7; }
+button.restore { background:var(--ok); color:#fff; }
+button.restore:hover { background:#18542d; }
+button.retry { background:#f47b20; color:#fff; }
+button.retry:hover { background:#d9650f; }
+button.skip { background:var(--err); color:#fff; }
+button.skip:hover { background:#8f1d18; }
 button.small { padding:.22rem .55rem; font-size:.8rem; border-radius:6px; }
 input[type=search], select { background:#fffdf9; color:var(--text); border:1px solid var(--border); border-radius:8px; height:2.6rem; padding:0 .7rem; font:inherit; line-height:1.4; }
 input[type=search] { min-width:min(280px,100%); }
@@ -247,9 +253,9 @@ const dashboardHTML = `{{define "dashboard"}}
 <td><span class="badge">{{.Action}}</span></td>
 <td class="nowrap">{{sizePair .SizeBefore .SizeAfter}}</td>
 <td class="muted nowrap">{{when .FinishedAt}}</td>
-<td class="actions">
-{{if .Restorable}}<form method="post" action="/api/jobs/{{.ID}}/restore" onsubmit="return confirm('Restore the original and discard the transcoded output? Automatic processing will be suppressed.')"><button class="secondary small" type="submit">Restore</button></form>{{end}}
-{{if .Retryable}}<form method="post" action="/api/jobs/{{.ID}}/retry?tab={{$.Tab}}" onsubmit="return confirm('Restore the original and re-transcode with current settings?')"><button class="secondary small" type="submit">Retry</button></form>{{end}}
+<td class="actions actions-stack">
+{{if .Restorable}}<form method="post" action="/api/jobs/{{.ID}}/restore" onsubmit="return confirm('Restore the original and discard the transcoded output? Automatic processing will be suppressed.')"><button class="restore small" type="submit">Restore</button></form>{{end}}
+{{if .Retryable}}<form method="post" action="/api/jobs/{{.ID}}/retry?tab={{$.Tab}}" onsubmit="return confirm('Restore the original and re-transcode with current settings?')"><button class="retry small" type="submit">Retry</button></form>{{end}}
 </td>
 </tr>
 {{else}}
@@ -269,8 +275,8 @@ const dashboardHTML = `{{define "dashboard"}}
 <td>{{if .Restored}}<span class="badge warn">restored</span> <span class="muted">{{.Error}}</span>{{else}}<span class="err">{{.Error}}</span>{{end}}</td>
 <td class="muted nowrap">{{when .UpdatedAt}}</td>
 <td class="actions actions-stack">
-{{if .Retryable}}<form method="post" action="/api/jobs/{{.ID}}/retry?tab={{$.Tab}}" onsubmit="return confirm('Retry this job with current settings?')"><button class="secondary small" type="submit">Retry</button></form>{{end}}
-<form method="post" action="/api/jobs/{{.ID}}/skip?tab=failed" onsubmit="return confirm('Mark this file skipped and stop retrying it? You can unskip it from the Files page.')"><button class="secondary small" type="submit">Skip</button></form>
+{{if .Retryable}}<form method="post" action="/api/jobs/{{.ID}}/retry?tab={{$.Tab}}" onsubmit="return confirm('Retry this job with current settings?')"><button class="retry small" type="submit">Retry</button></form>{{end}}
+<form method="post" action="/api/jobs/{{.ID}}/skip?tab=failed" onsubmit="return confirm('Mark this file skipped and stop retrying it? You can unskip it from the Files page.')"><button class="skip small" type="submit">Skip</button></form>
 </td>
 </tr>
 {{else}}
@@ -413,12 +419,12 @@ const jobHTML = `{{define "job"}}{{template "head" .}}
 </div>
 {{if .CanRestore}}
 <form method="post" action="/api/jobs/{{.ID}}/restore" style="margin:.8rem 0" onsubmit="return confirm('Restore the original and discard the transcoded output? Automatic processing will be suppressed.')">
-<button type="submit">Restore original</button>
+<button class="restore" type="submit">Restore original</button>
 </form>
 {{end}}
 {{if .CanRetry}}
 <form method="post" action="/api/jobs/{{.ID}}/retry" style="margin:.8rem 0" onsubmit="return confirm('Restore the original and re-transcode with current settings?')">
-<button class="{{if .CanRestore}}secondary{{end}}" type="submit">Retry with current settings</button>
+<button class="retry" type="submit">Retry with current settings</button>
 </form>
 {{end}}
 
