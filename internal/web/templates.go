@@ -57,17 +57,31 @@ button:hover { background:var(--accent); }
 button.secondary { background:#fffdf9; color:#1f1f1f; border:1px solid #1f1f1f; }
 button.secondary:hover { background:#fff1c7; }
 button.small { padding:.22rem .55rem; font-size:.8rem; border-radius:6px; }
-input[type=search] { background:#fffdf9; color:var(--text); border:1px solid var(--border); border-radius:8px; padding:.45rem .7rem; min-width:min(360px,100%); }
+input[type=search], select { background:#fffdf9; color:var(--text); border:1px solid var(--border); border-radius:8px; padding:.45rem .7rem; font:inherit; }
+input[type=search] { min-width:min(280px,100%); }
+.files-head { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; margin-bottom:.9rem; }
+.file-filters { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:.45rem; }
+.file-filters .clear { font-size:.85rem; white-space:nowrap; }
+.files-table-wrap { max-height:calc(100vh - 220px); overflow:auto; }
+.files-table { table-layout:fixed; }
+.files-table th, .files-table td { padding:.5rem .65rem; }
+.files-table th { position:sticky; top:0; z-index:1; }
+.files-table .col-size { width:86px; }
+.files-table .col-queue { width:165px; }
+.files-table .col-decision { width:34%; }
+.files-table .col-checked { width:100px; }
+.files-table td.file { overflow-wrap:anywhere; }
+.files-table td.decision { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.file-meta { font-size:.78rem; color:var(--muted); margin-top:.2rem; }
+.files-footer { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-top:.7rem; }
+.files-footer .pager { display:flex; gap:.8rem; }
+.page-link { white-space:nowrap; }
 code { background:#f1ece2; color:#1f1f1f; border-radius:4px; padding:.08rem .3rem; font-size:.9em; word-break:break-word; }
 .path { word-break:break-all; }
 .nowrap { white-space:nowrap; }
 td.actions { white-space:nowrap; }
 td.actions form { display:inline-block; margin:0 .25rem 0 0; }
 td.actions form:last-child { margin-right:0; }
-.chips { margin:.55rem 0; }
-.chip { display:inline-block; padding:.2rem .6rem; border:1px solid var(--border); border-radius:999px; margin:0 .35rem .35rem 0; color:#3f3a33; background:#fffdf9; font-size:.85rem; }
-.chip:hover { text-decoration:none; border-color:#9a9185; }
-.chip.active { background:var(--accent); color:#fff; border-color:var(--accent); }
 .notice { margin:1rem 0; border-color:#fde68a; background:#fffbeb; color:#92400e; }
 .paused { background:var(--warn-bg); color:var(--warn); border:1px solid #fde68a; border-radius:8px; padding:.5rem .7rem; margin-bottom:1rem; font-size:.9rem; }
 .bar { height:10px; background:#e9e1d3; border-radius:999px; overflow:hidden; margin:.7rem 0 .4rem; }
@@ -102,6 +116,11 @@ td.actions form:last-child { margin-right:0; }
   .top { flex-wrap:wrap; }
   th, td { padding:.5rem .55rem; }
   .toolbar { flex-direction:column; }
+  .files-head { flex-direction:column; }
+  .file-filters { justify-content:flex-start; width:100%; }
+  .files-table .col-decision, .files-table .col-checked { display:none; }
+  .files-table .decision, .files-table .checked { display:none; }
+  .files-footer { flex-direction:column; align-items:flex-start; }
 }
 </style>
 </head>
@@ -260,50 +279,45 @@ const pageHTML = `{{define "page"}}{{template "head"}}
 </body></html>{{end}}`
 
 const filesHTML = `{{define "files"}}{{template "head"}}
-<div class="toolbar">
-<div><h1>Files</h1><div class="muted">{{.Total}} file(s) match · {{.Counts.Pending}} queued</div></div>
-</div>
-
-<div class="chips"><span class="muted">Queue: </span>
-{{range .QueueLinks}}<a class="chip {{if .Active}}active{{end}}" href="{{.Href}}">{{.Label}}</a>{{end}}
-</div>
-<div class="chips"><span class="muted">Action: </span>
-{{range .ActionLinks}}<a class="chip {{if .Active}}active{{end}}" href="{{.Href}}">{{.Label}}</a>{{end}}
-</div>
-<div class="chips"><span class="muted">Library: </span>
-{{range .LibraryLinks}}<a class="chip {{if .Active}}active{{end}}" href="{{.Href}}">{{.Label}}</a>{{end}}
-</div>
-
-<form method="get" action="/files" style="margin:1rem 0">
-<input type="hidden" name="library" value="{{.Query.Library}}">
-<input type="hidden" name="action" value="{{.Query.Action}}">
-<input type="hidden" name="queue" value="{{.Query.Queue}}">
-<input type="search" name="q" value="{{.Query.Search}}" placeholder="filter by path">
-<button type="submit">Search</button>
+<style>.wrap { max-width:1500px; }</style>
+<div class="files-head">
+<div><h1>Files</h1><div class="muted">{{.Total}} matching · {{.Counts.Pending}} queued{{if .HasFilters}} · {{.ActiveFilters}} filter(s){{end}}</div></div>
+<form class="file-filters" method="get" action="/files">
+<select name="queue" aria-label="Queue filter">{{range .QueueOptions}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+<select name="action" aria-label="Action filter">{{range .ActionOptions}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+<select name="library" aria-label="Library filter">{{range .LibraryOptions}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+<input type="search" name="q" value="{{.Query.Search}}" placeholder="Filter by path" aria-label="Path filter">
+<button type="submit">Apply</button>
+{{if .HasFilters}}<a class="clear" href="/files">Clear</a>{{end}}
 </form>
+</div>
 
-<div class="table-wrap"><table>
-<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th>Size</th><th>Queue</th><th>Decision</th><th>Checked</th></tr>
+<div class="table-wrap files-table-wrap">
+<table class="files-table">
+<colgroup><col><col class="col-size"><col class="col-queue"><col class="col-decision"><col class="col-checked"></colgroup>
+<thead><tr><th>File</th><th class="size">Size</th><th>Queue</th><th class="decision">Decision</th><th class="checked">Checked</th></tr></thead>
+<tbody>
 {{range .Rows}}
 <tr>
-<td>{{if .JobID}}<a href="/jobs/{{.JobID}}">{{.JobID}}</a>{{else}}—{{end}}</td>
-<td class="path"><code>{{.Path}}</code></td>
-<td>{{.Library}}</td>
-<td><span class="badge">{{.Action}}</span></td>
-<td>{{bytes .Size}}</td>
-<td>{{if .JobID}}<a href="/jobs/{{.JobID}}"><span class="badge {{.QueueClass}}">{{.QueueLabel}}</span></a>{{else if .QueueLabel}}<span class="badge {{.QueueClass}}">{{.QueueLabel}}</span>{{end}}</td>
-<td class="muted">{{.Reason}}</td>
-<td class="muted">{{when .CheckedAt}}</td>
+<td class="file">
+{{if .JobID}}<a href="/jobs/{{.JobID}}"><code>{{.Path}}</code></a>{{else}}<code>{{.Path}}</code>{{end}}
+<div class="file-meta">{{.Library}} · {{.Action}}{{if .JobID}} · <a href="/jobs/{{.JobID}}">#{{.JobID}}</a>{{end}}</div>
+</td>
+<td class="size nowrap">{{bytes .Size}}</td>
+<td class="queue">{{if .JobID}}<a href="/jobs/{{.JobID}}"><span class="badge {{.QueueClass}}">{{.QueueLabel}}</span></a>{{else if .QueueLabel}}<span class="badge {{.QueueClass}}">{{.QueueLabel}}</span>{{end}}</td>
+<td class="decision muted" title="{{.Reason}}">{{.Reason}}</td>
+<td class="checked muted nowrap">{{when .CheckedAt}}</td>
 </tr>
 {{else}}
-<tr><td colspan="8" class="muted">No files match this filter.</td></tr>
+<tr><td colspan="5" class="muted">No files match this filter.</td></tr>
 {{end}}
-</table></div>
+</tbody>
+</table>
+</div>
 
-<div class="muted" style="margin-top:1rem">
-Showing {{.Start}}–{{.End}} of {{.Total}}
-{{if .PrevHref}} · <a href="{{.PrevHref}}">Previous</a>{{end}}
-{{if .NextHref}} · <a href="{{.NextHref}}">Next</a>{{end}}
+<div class="files-footer muted">
+<span>Showing {{.Start}}–{{.End}} of {{.Total}}</span>
+<span class="pager">{{if .PrevHref}}<a class="page-link" href="{{.PrevHref}}">← Previous</a>{{end}}{{if .NextHref}}<a class="page-link" href="{{.NextHref}}">Next →</a>{{end}}</span>
 </div>
 </div>
 </body></html>{{end}}`

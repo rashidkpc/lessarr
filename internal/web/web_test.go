@@ -284,7 +284,7 @@ func TestFilesPageShowsQueuedCandidate(t *testing.T) {
 		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
 	}
 	body := w.Body.String()
-	for _, want := range []string{"Example.mkv", "pending", "Queue"} {
+	for _, want := range []string{"Example.mkv", "pending", "Queue", "All queues", "All libraries", "value=\"transcode\" selected", "Movies · transcode"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("files page missing %q", want)
 		}

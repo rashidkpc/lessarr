@@ -15,26 +15,28 @@ type FileView struct {
 	QueueClass string
 }
 
-type FilterLink struct {
-	Label  string
-	Href   string
-	Active bool
+type FilterOption struct {
+	Value    string
+	Label    string
+	Selected bool
 }
 
 type FilesPage struct {
 	Status
-	Query        queue.FileQuery
-	Rows         []FileView
-	Total        int
-	Limit        int
-	Offset       int
-	Start        int
-	End          int
-	PrevHref     string
-	NextHref     string
-	LibraryLinks []FilterLink
-	ActionLinks  []FilterLink
-	QueueLinks   []FilterLink
+	Query          queue.FileQuery
+	Rows           []FileView
+	Total          int
+	Limit          int
+	Offset         int
+	Start          int
+	End            int
+	PrevHref       string
+	NextHref       string
+	QueueOptions   []FilterOption
+	ActionOptions  []FilterOption
+	LibraryOptions []FilterOption
+	ActiveFilters  int
+	HasFilters     bool
 }
 
 func (s *Server) filesPage(w http.ResponseWriter, r *http.Request) {
@@ -84,7 +86,7 @@ func (s *Server) filesPage(w http.ResponseWriter, r *http.Request) {
 		case writable[row.Library]:
 			view.QueueLabel = "not queued"
 		default:
-			view.QueueLabel = "would queue (write off)"
+			view.QueueLabel = "would queue"
 			view.QueueClass = "warn"
 		}
 		page.Rows = append(page.Rows, view)
@@ -104,27 +106,34 @@ func (s *Server) filesPage(w http.ResponseWriter, r *http.Request) {
 	if q.Offset+len(rows) < total {
 		page.NextHref = fileHref(q, q.Library, q.Action, q.Queue, q.Offset+q.Limit)
 	}
-	page.QueueLinks = []FilterLink{{Label: "All", Href: fileHref(q, q.Library, q.Action, "", 0), Active: q.Queue == ""}}
+	page.QueueOptions = []FilterOption{{Label: "All queues", Selected: q.Queue == ""}}
 	for _, item := range []struct{ value, label string }{
 		{"pending", "Queued"}, {"running", "Running"}, {"none", "Not queued"},
 	} {
-		page.QueueLinks = append(page.QueueLinks, FilterLink{
-			Label: item.label, Href: fileHref(q, q.Library, q.Action, item.value, 0), Active: q.Queue == item.value,
+		page.QueueOptions = append(page.QueueOptions, FilterOption{
+			Value: item.value, Label: item.label, Selected: q.Queue == item.value,
 		})
 	}
-	page.LibraryLinks = []FilterLink{{Label: "All", Href: fileHref(q, "", q.Action, q.Queue, 0), Active: q.Library == ""}}
-	for _, lib := range s.cfg.Libraries {
-		page.LibraryLinks = append(page.LibraryLinks, FilterLink{
-			Label: lib.Name, Href: fileHref(q, lib.Name, q.Action, q.Queue, 0), Active: q.Library == lib.Name,
-		})
-	}
+	page.ActionOptions = []FilterOption{{Label: "All actions", Selected: q.Action == ""}}
 	for _, action := range []struct{ value, label string }{
-		{"", "All"}, {"transcode", "Transcode"}, {"remux", "Remux"}, {"skip", "Skip"},
+		{"transcode", "Transcode"}, {"remux", "Remux"}, {"skip", "Skip"},
 	} {
-		page.ActionLinks = append(page.ActionLinks, FilterLink{
-			Label: action.label, Href: fileHref(q, q.Library, action.value, q.Queue, 0), Active: q.Action == action.value,
+		page.ActionOptions = append(page.ActionOptions, FilterOption{
+			Value: action.value, Label: action.label, Selected: q.Action == action.value,
 		})
 	}
+	page.LibraryOptions = []FilterOption{{Label: "All libraries", Selected: q.Library == ""}}
+	for _, lib := range s.cfg.Libraries {
+		page.LibraryOptions = append(page.LibraryOptions, FilterOption{
+			Value: lib.Name, Label: lib.Name, Selected: q.Library == lib.Name,
+		})
+	}
+	for _, value := range []string{q.Library, q.Action, q.Queue, q.Search} {
+		if value != "" {
+			page.ActiveFilters++
+		}
+	}
+	page.HasFilters = page.ActiveFilters > 0
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.templates.ExecuteTemplate(w, "files", page); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
