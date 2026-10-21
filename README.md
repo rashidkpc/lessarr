@@ -193,6 +193,10 @@ docker build --platform linux/amd64 -t ghcr.io/rashidkpc/lessarr:edge .
 docker run --rm -v /path/to/media:/media:ro ghcr.io/rashidkpc/lessarr:edge selftest /media
 ```
 
+For the production Docker host container host deployment, see **[deploy/docker](deploy/docker)**.
+It uses a Debian bookworm + FFmpeg 5.1.9 image, a Compose stack, and one small
+systemd unit so the container starts only after the CIFS mount.
+
 For a low-power host specifically — including the Docker client quirks, the
 compose project setup and a config you can paste — see **[docs/remote share.md](docs/remote share.md)**.
 

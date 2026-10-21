@@ -1,0 +1,32 @@
+name: lessarr
+
+services:
+  lessarr:
+    image: ${LESSARR_IMAGE:-ghcr.io/rashidkpc/lessarr:edge-bookworm}
+    container_name: lessarr
+    # systemd owns the lifecycle so it can start only after the CIFS mount.
+    restart: "no"
+    init: true
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128
+    ports:
+      - "8585:8585"
+    volumes:
+      - /config/config.toml:/config/config.toml:ro
+      - /state:/state
+      - /media:/media
+    environment:
+      TZ: ${TZ:-UTC}
+    command: ["run", "--config", "/config/config.toml"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8585/readyz"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 2m
+    stop_grace_period: 90s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

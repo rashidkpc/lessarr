@@ -1,0 +1,20 @@
+[Unit]
+Description=lessarr media re-encoder (Docker Compose)
+RequiresMountsFor=/media
+Requires=docker.service
+After=network-online.target docker.service remote-fs.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/lessarr
+ExecStart=/usr/bin/docker compose up --remove-orphans
+ExecStop=/usr/bin/docker compose down
+Restart=always
+RestartSec=10
+TimeoutStartSec=0
+TimeoutStopSec=120
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target

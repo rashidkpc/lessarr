@@ -1,0 +1,44 @@
+# syntax=docker/dockerfile:1
+
+FROM golang:1.24-bookworm AS build
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+ARG VERSION=dev
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
+      -ldflags "-s -w -X main.version=${VERSION}" \
+      -o /out/lessarr ./cmd/lessarr
+
+# Keep this image aligned with the Debian bookworm runtime used on the container host:
+# Debian FFmpeg 5.1.9 plus the Intel media VAAPI driver.
+FROM debian:bookworm-slim
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      ca-certificates curl ffmpeg intel-media-va-driver libva-drm2 libva2 vainfo tzdata; \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+
+ENV LIBVA_DRIVER_NAME=iHD
+
+COPY --from=build /out/lessarr /usr/local/bin/lessarr
+COPY config.example.toml /config/config.example.toml
+
+EXPOSE 8585
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:8585/readyz || exit 1
+
+ARG VERSION=dev
+LABEL org.opencontainers.image.title="lessarr" \
+      org.opencontainers.image.description="Single-node media re-encoder" \
+      org.opencontainers.image.licenses="GPL-3.0-only" \
+      org.opencontainers.image.source="https://github.com/rashidkpc/lessarr" \
+      org.opencontainers.image.version="${VERSION}"
+
+ENTRYPOINT ["/usr/local/bin/lessarr"]
+CMD ["help"]
