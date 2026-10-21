@@ -33,9 +33,7 @@ sudo systemctl enable --now lessarr-compose.service
 ```
 
 The stack uses `ghcr.io/rashidkpc/lessarr:edge-bookworm` and host networking. The
-systemd unit starts it after `/media` is mounted. See
-**[deploy/docker](deploy/docker)** for container host prerequisites and the full cutover/rollback
-procedure.
+systemd unit starts it after `/media` is mounted.
 
 Check it once before enabling writes:
 
@@ -109,7 +107,6 @@ write = false
 
 ## Documentation
 
-- **[deploy/docker](deploy/docker)** — production Docker deployment.
 - **[docs/COMMANDS.md](docs/COMMANDS.md)** — CLI and container command reference.
 - **[docs/HOME_ASSISTANT.md](docs/HOME_ASSISTANT.md)** — monitoring sensors.
 - **[docs/remote share.md](docs/remote share.md)** — low-power host Docker client notes.
