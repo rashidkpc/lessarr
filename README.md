@@ -1,15 +1,8 @@
 # lessarr
 
-Single-node media encoding manager. It scans libraries, explains what needs
-re-encoding, queues the work, and replaces files only after validation and a
-retained original.
+Single-node media encoding manager. Docker is the supported deployment method.
 
-Docker is the supported production deployment. The binary is for development and
-diagnostics.
-
-## Docker deployment
-
-### Prerequisites
+## Prerequisites
 
 - Docker Engine and the Compose plugin.
 - Intel render device at `/dev/dri/renderD128`.
@@ -17,7 +10,7 @@ diagnostics.
 - A config at `/config/config.toml`.
 - Persistent state at `/state`.
 
-### Minimum install
+## Install
 
 ```sh
 git clone https://github.com/rashidkpc/lessarr.git
@@ -32,36 +25,12 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now lessarr-compose.service
 ```
 
-The stack uses `ghcr.io/rashidkpc/lessarr:edge-bookworm` and host networking. The
-systemd unit starts it after `/media` is mounted.
+The service starts the Compose stack after `/media` is mounted. The
+container uses `ghcr.io/rashidkpc/lessarr:edge-bookworm` and host networking.
 
-Check it once before enabling writes:
+## Configure
 
-```sh
-sudo docker run --rm --network host \
-  --device /dev/dri/renderD128 \
-  -v /media:/media \
-  ghcr.io/rashidkpc/lessarr:edge-bookworm selftest /media
-```
-
-Then open `http://<host>:8585` and validate the config with:
-
-```sh
-sudo docker exec lessarr /usr/local/bin/lessarr \
-  config-validate --config /config/config.toml
-```
-
-Updates:
-
-```sh
-cd /opt/lessarr
-sudo docker compose pull
-sudo systemctl restart lessarr-compose.service
-```
-
-### Configuration
-
-Start from `config.example.toml`. The minimum shape is:
+Create `/config/config.toml` before starting the service:
 
 ```toml
 [server]
@@ -80,46 +49,42 @@ path  = "/media/Movies"
 write = false
 ```
 
-`write = false` still scans, probes, and records decisions. Only libraries with
-`write = true` are modified.
+Set `write = true` only for libraries lessarr is allowed to modify. With
+`write = false`, files are inspected but never changed.
 
-## What it does
-
-- **Skip**: nothing worth changing; records the passing checks.
-- **Remux**: copies video untouched and rewrites audio/subtitles/container.
-- **Transcode**: hardware H.264/MPEG-2/VC-1 → HEVC, with validation and a savings
-  guard.
-- HEVC and AV1 video are **copy-only**; they are never re-encoded.
-- Replacements are atomic in the source directory, retain the original in
-  `.lessarr-trash`, and are rejected if validation or savings checks fail.
-
-## Operations
-
-- Dashboard: `http://<host>:8585/` with `/files`, `/trash`, and `/metrics`.
-- Basic Auth is optional; `/healthz` and `/readyz` are unauthenticated.
-- `/api/health` exposes database, mount, encoder, scan, queue, and version
-  state for monitoring.
-- Trash: inspect tracked originals and orphans, delete individual items, or empty
-  the trash. Restore, retry, skip, and unskip are available from the UI.
-- A one-minute mount watchdog pauses new claims if a library becomes unreadable.
-- SQLite state lives in `/state`; comparisons and backups are kept
-  there too.
-
-## Documentation
-
-- **[docs/COMMANDS.md](docs/COMMANDS.md)** — CLI and container command reference.
-- **[docs/HOME_ASSISTANT.md](docs/HOME_ASSISTANT.md)** — monitoring sensors.
-- **[config.example.toml](config.example.toml)** — all policy options.
-
-## Development
+## Verify
 
 ```sh
-make test       # unit tests; no GPU required
-go build ./cmd/lessarr
+sudo docker run --rm --network host \
+  --device /dev/dri/renderD128 \
+  -v /media:/media \
+  ghcr.io/rashidkpc/lessarr:edge-bookworm selftest /media
+
+curl -fsS http://127.0.0.1:8585/readyz
 ```
 
-The full command reference is in [docs/COMMANDS.md](docs/COMMANDS.md).
+The first scan can take a couple of minutes; `/readyz` returns `503` until it
+completes. Open `http://<host>:8585/` when it reports `ok`.
 
-## License
+Check the mounted configuration:
 
-GPL-3.0. See `LICENSE` and `NOTICE`. The image bundles GPL-licensed FFmpeg.
+```sh
+sudo docker exec lessarr /usr/local/bin/lessarr \
+  config-validate --config /config/config.toml
+```
+
+## Update
+
+```sh
+cd /opt/lessarr
+sudo docker compose pull
+sudo systemctl restart lessarr-compose.service
+```
+
+## Logs and status
+
+```sh
+sudo systemctl status lessarr-compose.service
+sudo docker logs --tail 100 lessarr
+sudo journalctl -u lessarr-compose.service -n 100
+```
