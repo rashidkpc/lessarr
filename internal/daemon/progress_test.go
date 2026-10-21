@@ -9,7 +9,7 @@ import (
 
 func TestSamplingStepsUpdateSubProgress(t *testing.T) {
 	d := &Daemon{}
-	d.startProgress(1)
+	d.startProgress(1, "transcode", "sample")
 	d.addProgressStep("validating")
 	d.addProgressStep("scanning packets")
 	d.addProgressStep("sampling 1/5")
@@ -39,5 +39,35 @@ func TestSettled(t *testing.T) {
 	lib.SkipIfNewerThan = 0
 	if !settled(now, lib, now) {
 		t.Error("zero settle window should always be settled")
+	}
+}
+
+func TestProgressShowsUpcomingStages(t *testing.T) {
+	d := &Daemon{}
+	d.startProgress(1, "transcode", "sample")
+	p := d.currentProgress()
+	if p == nil {
+		t.Fatal("expected progress")
+	}
+	found := map[string]bool{}
+	for _, step := range p.Steps {
+		found[step.Label] = true
+	}
+	for _, want := range []string{"preparing", "encoding", "validating", "sampling 5/5", "installing"} {
+		if !found[want] {
+			t.Errorf("planned stage %q missing", want)
+		}
+	}
+	if p.Stage != "preparing" {
+		t.Errorf("stage = %q, want preparing", p.Stage)
+	}
+	count := 0
+	for _, step := range p.Steps {
+		if step.Current {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("got %d current stages, want 1", count)
 	}
 }

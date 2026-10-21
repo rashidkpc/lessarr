@@ -74,6 +74,7 @@ code { background:#f1f5f9; color:#0f172a; border-radius:4px; padding:.08rem .3re
 .step { padding:.12rem .5rem; border-radius:999px; background:#f1f5f9; color:#64748b; font-size:.82rem; }
 .step.done { background:var(--ok-bg); color:var(--ok); }
 .step.current { background:var(--accent-soft); color:#1e40af; }
+.step.pending { background:#fff; color:#94a3b8; }
 .toolbar { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; margin-bottom:.4rem; }
 @media (max-width:640px) {
   body { padding:1.25rem .75rem 3rem; }
@@ -134,7 +135,7 @@ const dashboardHTML = `{{define "dashboard"}}
 <div class="muted">sampling {{.Progress.SampleDone}}/{{.Progress.SampleTotal}}</div>
 {{end}}
 <div class="steps">
-{{range .Progress.Steps}}<span class="step {{if .Done}}done{{else}}current{{end}}">{{.Label}}</span>{{end}}
+{{range .Progress.Steps}}<span class="step {{if .Done}}done{{else if .Current}}current{{else}}pending{{end}}">{{.Label}}</span>{{end}}
 </div>
 </details>
 {{end}}

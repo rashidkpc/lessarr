@@ -27,9 +27,10 @@ type Server struct {
 }
 
 type Step struct {
-	Label string
-	At    time.Time
-	Done  bool
+	Label   string
+	At      time.Time
+	Done    bool
+	Current bool
 }
 
 // Progress is a snapshot of the currently running job's encoder progress.

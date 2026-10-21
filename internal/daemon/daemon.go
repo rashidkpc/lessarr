@@ -311,7 +311,7 @@ func (d *Daemon) runJob(ctx context.Context, n int, job *queue.Job) {
 		return
 	}
 	fmt.Fprintf(d.log, "job %d start: %s (%s)\n", job.ID, job.Path, job.Action)
-	d.startProgress(job.ID)
+	d.startProgress(job.ID, job.Action, lib.Validation)
 	defer d.clearProgress()
 	result, err := worker.Once(ctx, job.Path, worker.Options{
 		Runner:         d.runner,
@@ -562,12 +562,35 @@ func (d *Daemon) supportsHardwareDecode(codec string) bool {
 	return d.hwDecode[codec]
 }
 
-func (d *Daemon) startProgress(jobID int64) {
+func (d *Daemon) startProgress(jobID int64, action, validation string) {
 	d.progressMu.Lock()
 	defer d.progressMu.Unlock()
 	now := time.Now()
 	d.progress = web.Progress{JobID: jobID, Phase: "preparing", Started: now, Updated: now}
+	for _, label := range planStages(action, validation) {
+		d.progress.Steps = append(d.progress.Steps, web.Step{Label: label})
+	}
 	d.addProgressStepLocked("preparing")
+}
+
+func planStages(action, validation string) []string {
+	stages := []string{
+		"preparing", "encoding", "validating",
+		"probing output", "checking stream counts", "checking container",
+		"checking video codec", "checking dimensions", "checking duration",
+		"checking audio tracks",
+	}
+	if action == string(decision.Remux) && validation != "full" {
+		stages = append(stages, "scanning packets")
+	}
+	if validation == "full" {
+		stages = append(stages, "decoding output")
+	} else {
+		for i := 1; i <= 5; i++ {
+			stages = append(stages, fmt.Sprintf("sampling %d/5", i))
+		}
+	}
+	return append(stages, "validated", "installing")
 }
 
 func (d *Daemon) clearProgress() {
@@ -611,14 +634,36 @@ func (d *Daemon) addProgressStep(label string) {
 
 func (d *Daemon) addProgressStepLocked(label string) {
 	now := time.Now()
-	if n := len(d.progress.Steps); n > 0 {
-		if d.progress.Steps[n-1].Label == label {
-			d.progress.Updated = now
-			return
+	idx := -1
+	for i := range d.progress.Steps {
+		if d.progress.Steps[i].Label == label {
+			idx = i
+			break
 		}
-		d.progress.Steps[n-1].Done = true
 	}
-	d.progress.Steps = append(d.progress.Steps, web.Step{Label: label, At: now})
+	if idx == -1 {
+		current := -1
+		for i := range d.progress.Steps {
+			if d.progress.Steps[i].Current {
+				current = i
+			}
+		}
+		idx = current + 1
+		if idx < 0 || idx > len(d.progress.Steps) {
+			idx = len(d.progress.Steps)
+		}
+		d.progress.Steps = append(d.progress.Steps, web.Step{})
+		copy(d.progress.Steps[idx+1:], d.progress.Steps[idx:])
+		d.progress.Steps[idx] = web.Step{Label: label}
+	}
+	for i := range d.progress.Steps {
+		step := &d.progress.Steps[i]
+		step.Done = i < idx
+		step.Current = i == idx
+		if step.Current {
+			step.At = now
+		}
+	}
 	d.progress.Stage = label
 	d.progress.SampleDone = 0
 	d.progress.SampleTotal = 0
