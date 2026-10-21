@@ -13,6 +13,7 @@ const metricsWindow = 30 * 24 * time.Hour
 type MetricsPage struct {
 	Version string
 	Page    string
+	Paused  bool
 	Charts  []Chart
 }
 
@@ -47,7 +48,12 @@ func (s *Server) metricsPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	page := MetricsPage{Version: s.version, Page: "metrics", Charts: buildCharts(points)}
+	paused, err := s.store.Paused()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	page := MetricsPage{Version: s.version, Page: "metrics", Paused: paused, Charts: buildCharts(points)}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.templates.ExecuteTemplate(w, "metrics", page); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

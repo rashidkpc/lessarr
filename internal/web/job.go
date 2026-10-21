@@ -56,6 +56,7 @@ type JobPage struct {
 	*queue.Job
 	Version       string
 	Page          string
+	Paused        bool
 	Analysis      *analysis.Result
 	HasComparison bool
 	CanRetry      bool
@@ -77,7 +78,12 @@ func (s *Server) jobPage(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	page := JobPage{Job: job, Version: s.version, Page: ""}
+	paused, err := s.store.Paused()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	page := JobPage{Job: job, Version: s.version, Page: "", Paused: paused}
 	if _, err := os.Stat(filepath.Join(compare.Dir(s.cfg.Server.DB), strconv.FormatInt(job.ID, 10), "index.html")); err == nil {
 		page.HasComparison = true
 	}

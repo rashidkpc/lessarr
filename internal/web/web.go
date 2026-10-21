@@ -151,6 +151,7 @@ func (s *Server) prepareStatus(r *http.Request) (Status, error) {
 type TrashPage struct {
 	Version    string
 	Page       string
+	Paused     bool
 	Report     trash.Report
 	TrashLimit int64
 	Retention  string
@@ -191,8 +192,13 @@ func (s *Server) trashPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	paused, err := s.store.Paused()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	page := TrashPage{
-		Version: s.version, Page: "trash", Report: report,
+		Version: s.version, Page: "trash", Paused: paused, Report: report,
 		TrashLimit: s.cfg.Trash.MaxSizeGB,
 		Retention:  s.cfg.Trash.Retention.Std().String(),
 	}
@@ -207,7 +213,11 @@ func (s *Server) setPaused(w http.ResponseWriter, r *http.Request, paused bool) 
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	target := "/"
+	if referer, err := url.Parse(r.Referer()); err == nil && strings.EqualFold(referer.Host, r.Host) && strings.HasPrefix(referer.Path, "/") {
+		target = referer.RequestURI()
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 func (s *Server) authorized(w http.ResponseWriter, r *http.Request) bool {

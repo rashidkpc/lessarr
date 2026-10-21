@@ -40,10 +40,13 @@ func TestStatusPageRenders(t *testing.T) {
 		t.Fatalf("status = %d: %s", w.Code, w.Body.String())
 	}
 	body := w.Body.String()
-	for _, want := range []string{"lessarr", "Dashboard", "Queued", "Done", "Reclaimed · 30d", "Library", "Queue"} {
+	for _, want := range []string{"lessarr", "Dashboard", "Queued", "Done", "Reclaimed · 30d", "Library", "Queue", `href="/files"`, `href="/trash"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page missing %q", want)
 		}
+	}
+	if strings.Contains(body, "Encoding activity and recent savings") {
+		t.Error("obsolete dashboard subtitle is still present")
 	}
 }
 
@@ -547,5 +550,16 @@ func TestRunningTabShowsUpNext(t *testing.T) {
 	body := w.Body.String()
 	if !strings.Contains(body, "Up next") || !strings.Contains(body, path) {
 		t.Errorf("running tab missing up next: %s", body)
+	}
+}
+
+func TestPauseRedirectsBackToCurrentPage(t *testing.T) {
+	s := testServer(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/pause", nil)
+	req.Header.Set("Referer", "http://example.com/files?q=test")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/files?q=test" {
+		t.Fatalf("pause redirect = %d %q", w.Code, w.Header().Get("Location"))
 	}
 }

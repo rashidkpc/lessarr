@@ -17,6 +17,8 @@ const sharedHTML = `{{define "head"}}<!doctype html>
 body { font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--text); margin:0; padding:2rem 1.25rem 4rem; }
 .wrap { max-width:1200px; margin:0 auto; }
 .top { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.6rem; }
+.top-actions { display:flex; align-items:center; gap:.6rem; }
+.top-actions button { padding:.35rem .75rem; }
 .brand { font-size:1.4rem; font-weight:700; letter-spacing:-.02em; }
 .brand span { font-size:.8rem; color:var(--muted); font-weight:400; margin-left:.4rem; }
 nav { display:flex; gap:.2rem; background:#ece6da; padding:.25rem; border-radius:10px; }
@@ -32,6 +34,8 @@ h2 { font-size:.78rem; text-transform:uppercase; letter-spacing:.07em; color:var
 .panel { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem; box-shadow:0 1px 2px rgba(15,23,42,.04); }
 .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:.8rem; margin:1rem 0 1.4rem; }
 .stat { background:var(--surface); border:1px solid var(--border); border-top:3px solid #d71920; border-radius:12px; padding:.9rem 1rem; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+a.stat { display:block; color:var(--text); }
+a.stat:hover { text-decoration:none; border-color:#c9bfae; }
 .stat:nth-child(2) { border-top-color:#f47b20; }
 .stat:nth-child(3) { border-top-color:#f2c200; }
 .stat:nth-child(4) { border-top-color:#1f1f1f; }
@@ -118,6 +122,7 @@ td.actions form:last-child { margin-right:0; }
 @media (max-width:640px) {
   body { padding:1.25rem .75rem 3rem; }
   .top { flex-wrap:wrap; }
+  .top-actions { flex-wrap:wrap; }
   th, td { padding:.5rem .55rem; }
   .toolbar { flex-direction:column; }
   .files-head { flex-direction:column; align-items:stretch; }
@@ -132,23 +137,22 @@ td.actions form:last-child { margin-right:0; }
 <body><div class="wrap">
 <div class="top">
   <div class="brand">lessarr <span>v{{.Version}}</span></div>
-  {{template "nav" .}}
+  <div class="top-actions">
+    {{template "nav" .}}
+    <form method="post" action="{{if .Paused}}/api/resume{{else}}/api/pause{{end}}">
+      <button class="secondary" type="submit" title="{{if .Paused}}Resume claiming jobs{{else}}Finish the current job, then stop claiming new jobs{{end}}">{{if .Paused}}Resume{{else}}Pause{{end}}</button>
+    </form>
+  </div>
 </div>{{end}}
 {{define "nav"}}<nav><a class="{{if eq .Page "dashboard"}}active{{end}}" href="/">Dashboard</a><a class="{{if eq .Page "files"}}active{{end}}" href="/files">Files</a><a class="{{if eq .Page "trash"}}active{{end}}" href="/trash">Trash</a><a class="{{if eq .Page "metrics"}}active{{end}}" href="/metrics">Metrics</a></nav>{{end}}`
 
 const dashboardHTML = `{{define "dashboard"}}
-<div class="toolbar">
-<div class="muted">Encoding activity and recent savings</div>
-<form method="post" action="{{if .Paused}}/api/resume{{else}}/api/pause{{end}}">
-<button class="secondary" type="submit" title="{{if .Paused}}Resume claiming jobs{{else}}Finish the current job, then stop claiming new jobs{{end}}">{{if .Paused}}Resume{{else}}Pause{{end}}</button>
-</form>
-</div>
 {{if .Paused}}<div class="paused">Paused. The current job will finish; new jobs will not be claimed until resumed.</div>{{end}}
 
 <div class="stats">
 <div class="stat"><div class="label">Reclaimed · 30d</div><div class="value">{{bytes .Saved30d}}</div><div class="sub">{{.Done30d}} job(s)</div></div>
-<div class="stat"><div class="label">Library</div><div class="value">{{bytes .LibraryBytes}}</div><div class="sub">{{.LibraryFiles}} file(s)</div></div>
-<div class="stat"><div class="label">Trash</div><div class="value">{{bytes .TrashBytes}}</div><div class="sub">{{.TrashFiles}} file(s){{if gt .TrashLimitGB 0}} · cap {{.TrashLimitGB}} GB{{end}} · <a href="/trash">report</a></div></div>
+<a class="stat" href="/files"><div class="label">Library</div><div class="value">{{bytes .LibraryBytes}}</div><div class="sub">{{.LibraryFiles}} file(s)</div></a>
+<a class="stat" href="/trash"><div class="label">Trash</div><div class="value">{{bytes .TrashBytes}}</div><div class="sub">{{.TrashFiles}} file(s){{if gt .TrashLimitGB 0}} · cap {{.TrashLimitGB}} GB{{end}}</div></a>
 <div class="stat"><div class="label">Queue</div><div class="value">{{.Counts.Pending}}</div><div class="sub">{{.Ready}} ready to run</div></div>
 </div>
 
