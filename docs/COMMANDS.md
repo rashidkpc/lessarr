@@ -6,16 +6,22 @@ The production container is named `lessarr`. Run commands inside it with:
 sudo docker exec lessarr /usr/local/bin/lessarr <command> ...
 ```
 
-For one-off commands:
+For one-off commands, set the host paths from your local `.env` first:
 
 ```sh
+set -a
+. /opt/lessarr/.env
+set +a
+
 sudo docker run --rm --network host \
-  --device /dev/dri/renderD128 \
-  -v /config/config.toml:/config/config.toml:ro \
-  -v /state:/state \
-  -v /media:/media \
+  --device "$LESSARR_DEVICE" \
+  -v "$LESSARR_CONFIG":/config/config.toml:ro \
+  -v "$LESSARR_STATE":/state \
+  -v "$LESSARR_MEDIA":/media \
   ghcr.io/rashidkpc/lessarr:edge-bookworm <command> ...
 ```
+
+Paths after the colons are container paths; host paths come from `.env`.
 
 ## Daemon
 

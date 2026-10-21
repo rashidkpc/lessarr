@@ -40,3 +40,8 @@ go.work.sum
 /lessarr
 *.tmp.mkv
 /config.toml
+
+# Local deployment values
+deploy/docker/.env
+deploy/docker/*.local
+deploy/local/

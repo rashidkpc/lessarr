@@ -1,5 +1,5 @@
 // Package scan walks media libraries. It is polling-only on purpose: the
-// library lives on CIFS, where inotify does not receive the remote share's changes.
+// library lives on a remote share, where inotify does not receive changes.
 package scan
 
 import (

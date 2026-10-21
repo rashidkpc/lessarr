@@ -71,25 +71,13 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64
-          push: true
-          build-args: |
-            VERSION=${{ github.sha }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: build bookworm image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
           file: Dockerfile.bookworm
           platforms: linux/amd64
           push: true
           build-args: |
             VERSION=${{ github.sha }}
           tags: |
+            ${{ steps.meta.outputs.tags }}
             ghcr.io/${{ github.repository }}:edge-bookworm
             ghcr.io/${{ github.repository }}:sha-${{ github.sha }}-bookworm
           labels: ${{ steps.meta.outputs.labels }}
@@ -97,4 +85,4 @@ jobs:
           cache-to: type=gha,mode=max,scope=bookworm
 
 # NOTE: the first publish creates the GHCR package PRIVATE. It must be flipped
-# to public in the package settings, or Docker client cannot pull it. See
+# to public in the package settings, or clients cannot pull it.

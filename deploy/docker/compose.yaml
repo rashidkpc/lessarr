@@ -4,19 +4,17 @@ services:
   lessarr:
     image: ${LESSARR_IMAGE:-ghcr.io/rashidkpc/lessarr:edge-bookworm}
     container_name: lessarr
-    # systemd owns the lifecycle so it can start only after the CIFS mount.
+    # systemd owns the lifecycle so it can start after the media mount.
     restart: "no"
     init: true
-    # Bridge networking is unreliable in this container host because runc cannot reopen
-    # the unprivileged port sysctl. Host networking keeps the dashboard on the
-    # the host's normal LAN address.
+    # Use host networking when bridge networking is unavailable on the Docker host.
     network_mode: host
     devices:
-      - /dev/dri/renderD128:/dev/dri/renderD128
+      - ${LESSARR_DEVICE:-/dev/dri/renderD128}:/dev/dri/renderD128
     volumes:
-      - /config/config.toml:/config/config.toml:ro
-      - /state:/state
-      - /media:/media
+      - ${LESSARR_CONFIG:?set LESSARR_CONFIG in .env}:/config/config.toml:ro
+      - ${LESSARR_STATE:?set LESSARR_STATE in .env}:/state
+      - ${LESSARR_MEDIA:?set LESSARR_MEDIA in .env}:/media
     environment:
       TZ: ${TZ:-UTC}
     command: ["run", "--config", "/config/config.toml"]
