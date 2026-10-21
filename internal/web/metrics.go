@@ -73,18 +73,17 @@ func buildChart(points []queue.Metric, title, subtitle string, value func(queue.
 	if !maxT.After(minT) {
 		maxT = minT.Add(time.Second)
 	}
-	minV, maxV := value(points[0]), value(points[0])
+	// Charts start at zero so a flat series does not imply a narrow range
+	// between two arbitrary adjacent values.
+	minV := int64(0)
+	maxV := value(points[0])
 	for _, p := range points[1:] {
-		v := value(p)
-		if v < minV {
-			minV = v
-		}
-		if v > maxV {
+		if v := value(p); v > maxV {
 			maxV = v
 		}
 	}
-	if maxV == minV {
-		maxV = minV + 1
+	if maxV <= 0 {
+		maxV = 1
 	}
 	format := func(v int64) string {
 		if bytes {
