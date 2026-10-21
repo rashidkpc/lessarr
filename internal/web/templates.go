@@ -60,9 +60,10 @@ button.secondary:hover { background:#fff1c7; }
 button.small { padding:.22rem .55rem; font-size:.8rem; border-radius:6px; }
 input[type=search], select { background:#fffdf9; color:var(--text); border:1px solid var(--border); border-radius:8px; padding:.45rem .7rem; font:inherit; }
 input[type=search] { min-width:min(280px,100%); }
-.files-head { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; margin-bottom:.9rem; }
-.file-filters { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:.45rem; }
+.files-head { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:.9rem; }
+.file-filters { display:flex; align-items:center; justify-content:flex-start; flex-wrap:nowrap; gap:.45rem; }
 .file-filters .clear { font-size:.85rem; white-space:nowrap; }
+.files-summary { text-align:right; white-space:nowrap; }
 .files-table-wrap { max-height:calc(100vh - 220px); overflow:auto; }
 .files-table { table-layout:fixed; }
 .files-table th, .files-table td { padding:.5rem .65rem; }
@@ -117,8 +118,9 @@ td.actions form:last-child { margin-right:0; }
   .top { flex-wrap:wrap; }
   th, td { padding:.5rem .55rem; }
   .toolbar { flex-direction:column; }
-  .files-head { flex-direction:column; }
-  .file-filters { justify-content:flex-start; width:100%; }
+  .files-head { flex-direction:column; align-items:stretch; }
+  .file-filters { justify-content:flex-start; width:100%; flex-wrap:wrap; }
+  .files-summary { text-align:left; white-space:normal; }
   .files-table .col-decision, .files-table .col-checked { display:none; }
   .files-table .decision, .files-table .checked { display:none; }
   .files-footer { flex-direction:column; align-items:flex-start; }
@@ -283,7 +285,6 @@ const pageHTML = `{{define "page"}}{{template "head" .}}
 const filesHTML = `{{define "files"}}{{template "head" .}}
 <style>.wrap { max-width:1500px; }</style>
 <div class="files-head">
-<div class="muted">{{.Total}} matching · {{.Counts.Pending}} queued{{if .HasFilters}} · {{.ActiveFilters}} filter(s){{end}}</div>
 <form class="file-filters" id="file-filters" method="get" action="/files">
 <select name="queue" aria-label="Queue filter">{{range .QueueOptions}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select>
 <select name="action" aria-label="Action filter">{{range .ActionOptions}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select>
@@ -291,8 +292,10 @@ const filesHTML = `{{define "files"}}{{template "head" .}}
 <input type="search" name="q" value="{{.Query.Search}}" placeholder="Filter by path" aria-label="Path filter">
 {{if .HasFilters}}<a class="clear" href="/files">Clear</a>{{end}}
 </form>
+<div class="files-summary muted" id="files-summary" aria-live="polite">{{.Total}} matching · {{.Counts.Pending}} queued{{if .HasFilters}} · {{.ActiveFilters}} filter(s){{end}}</div>
 </div>
 
+<div id="files-results">
 <div class="table-wrap files-table-wrap">
 <table class="files-table">
 <colgroup><col><col class="col-size"><col class="col-queue"><col class="col-decision"><col class="col-checked"></colgroup>
@@ -324,22 +327,45 @@ const filesHTML = `{{define "files"}}{{template "head" .}}
 <script>
 (function () {
   var form = document.getElementById("file-filters");
-  if (!form) return;
+  var summary = document.getElementById("files-summary");
+  var results = document.getElementById("files-results");
+  if (!form || !summary || !results) return;
   var search = form.querySelector('input[name="q"]');
   var timer;
+  var request = 0;
+
+  function applyFilters() {
+    var params = new URLSearchParams(new FormData(form));
+    ["queue", "action", "library", "q"].forEach(function (key) {
+      if (!params.get(key)) params.delete(key);
+    });
+    var url = "/files" + (params.toString() ? "?" + params.toString() : "");
+    var current = ++request;
+    fetch(url, {cache: "no-store"})
+      .then(function (response) { return response.ok ? response.text() : ""; })
+      .then(function (html) {
+        if (!html || current !== request) return;
+        var doc = new DOMParser().parseFromString(html, "text/html");
+        var nextResults = doc.getElementById("files-results");
+        var nextSummary = doc.getElementById("files-summary");
+        if (nextResults) results.innerHTML = nextResults.innerHTML;
+        if (nextSummary) summary.innerHTML = nextSummary.innerHTML;
+        history.replaceState(null, "", url);
+      })
+      .catch(function () {});
+  }
+
   form.querySelectorAll("select").forEach(function (select) {
-    select.addEventListener("change", function () { form.submit(); });
+    select.addEventListener("change", applyFilters);
   });
   search.addEventListener("input", function () {
     clearTimeout(timer);
-    timer = setTimeout(function () { form.submit(); }, 400);
+    timer = setTimeout(applyFilters, 300);
   });
-  search.addEventListener("keydown", function (event) {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      clearTimeout(timer);
-      form.submit();
-    }
+  form.addEventListener("submit", function (event) {
+    event.preventDefault();
+    clearTimeout(timer);
+    applyFilters();
   });
 })();
 </script>
