@@ -109,7 +109,6 @@ write = false
 
 - **[docs/COMMANDS.md](docs/COMMANDS.md)** — CLI and container command reference.
 - **[docs/HOME_ASSISTANT.md](docs/HOME_ASSISTANT.md)** — monitoring sensors.
-- **[docs/remote share.md](docs/remote share.md)** — low-power host Docker client notes.
 - **[config.example.toml](config.example.toml)** — all policy options.
 
 ## Development

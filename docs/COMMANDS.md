@@ -20,8 +20,8 @@ sudo docker run --rm --network host \
 ## Daemon
 
 ```sh
-lessarr run --config config.toml
-lessarr run --config config.toml --once
+lessarr run --config /config/config.toml
+lessarr run --config /config/config.toml --once
 ```
 
 `run` scans, queues, encodes, serves the dashboard, and runs maintenance loops.
@@ -30,9 +30,9 @@ lessarr run --config config.toml --once
 ## Queue
 
 ```sh
-lessarr status --config config.toml
-lessarr pause  --config config.toml
-lessarr resume --config config.toml
+lessarr status --config /config/config.toml
+lessarr pause  --config /config/config.toml
+lessarr resume --config /config/config.toml
 ```
 
 The dashboard also supports pause/resume, queue prioritization, retry, restore,
@@ -41,9 +41,9 @@ skip, and unskip.
 ## Inspect media
 
 ```sh
-lessarr probe /media/movies/Example.mkv
-lessarr probe --accurate /media/movies/Example.mkv
-lessarr stats --config config.toml --top 20 --reasons
+lessarr probe /media/Movies/Example.mkv
+lessarr probe --accurate /media/Movies/Example.mkv
+lessarr stats --config /config/config.toml --top 20 --reasons
 ```
 
 `probe` prints the decision and exact FFmpeg command for one file. `--accurate`
@@ -54,7 +54,7 @@ projected actions and savings.
 
 ```sh
 lessarr selftest /media
-lessarr config-validate --config config.toml
+lessarr config-validate --config /config/config.toml
 lessarr calibrate --qps 18,22,26,30 --segments 3 --segment-seconds 10 \
   /media/Movies/Example.mkv
 ```
@@ -65,8 +65,8 @@ lessarr calibrate --qps 18,22,26,30 --segments 3 --segment-seconds 10 \
 ## Single-file work
 
 ```sh
-lessarr once --config config.toml /media/Movies/Example.mkv
-lessarr once --config config.toml --backend software --force \
+lessarr once --config /config/config.toml /media/Movies/Example.mkv
+lessarr once --config /config/config.toml --backend software --force \
   /media/Movies/Example.mkv
 ```
 
@@ -76,7 +76,7 @@ file. `--force` is an explicit one-file override and still retains the original.
 ## Analysis
 
 ```sh
-lessarr analyze --config config.toml 42
+lessarr analyze --config /config/config.toml 42
 ```
 
 Packet-scans the retained original and replacement, attributes size changes to
