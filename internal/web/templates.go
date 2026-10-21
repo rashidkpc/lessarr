@@ -91,7 +91,6 @@ select { padding-right:1.8rem; }
 .file-meta { font-size:.78rem; color:var(--muted); margin-top:.2rem; }
 .files-footer { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-top:.7rem; }
 .files-footer .pager { display:flex; gap:.8rem; }
-.trash-actions { display:flex; justify-content:flex-end; margin:.9rem 0; }
 .page-link { white-space:nowrap; }
 code { background:#f1ece2; color:#1f1f1f; border-radius:4px; padding:.08rem .3rem; font-size:.9em; word-break:break-word; }
 .path { word-break:break-all; }
@@ -484,6 +483,9 @@ const jobHTML = `{{define "job"}}{{template "head" .}}
 const trashHTML = `{{define "trash"}}{{template "head" .}}
 <div class="toolbar">
 <div class="muted">Retained originals on disk compared with the database</div>
+<form method="post" action="/api/trash/empty" onsubmit="return confirm('Permanently delete every tracked and orphan trash item? This cannot be undone.')">
+<button class="skip" type="submit">Empty trash</button>
+</form>
 </div>
 
 <div class="stats">
@@ -497,12 +499,6 @@ const trashHTML = `{{define "trash"}}{{template "head" .}}
 Policy: keep the newest original per source, retention {{.Retention}}, cap {{.TrashLimit}} GB.
 Orphans are preserved by default — after database loss they may be the only recoverable copy.
 </p>
-
-<div class="trash-actions">
-<form method="post" action="/api/trash/empty" onsubmit="return confirm('Permanently delete every tracked and orphan trash item? This cannot be undone.')">
-<button class="skip" type="submit">Empty trash</button>
-</form>
-</div>
 
 <h2>Trash locations</h2>
 {{if .Report.Locations}}
