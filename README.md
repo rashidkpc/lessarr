@@ -2,14 +2,6 @@
 
 Single-node media encoding manager. Docker is the supported deployment method.
 
-## Prerequisites
-
-- Docker Engine and the Compose plugin.
-- A compatible render device.
-- A media directory.
-- A config file.
-- A persistent state directory.
-
 ## Install
 
 ```sh
