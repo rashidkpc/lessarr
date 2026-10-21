@@ -4,9 +4,14 @@
 # falling back to a default.
 
 [server]
-listen    = "0.0.0.0:8585"
-db        = "/config/lessarr.db"
-log_level = "info"
+listen      = "0.0.0.0:8585"
+db          = "/config/lessarr.db"
+log_level   = "info"
+# Protect the dashboard and API with HTTP Basic Auth. Set both or neither.
+# username    = "admin"
+# password    = "change-me"
+# Optional JSON webhook for job failures.
+# webhook_url = "https://example.invalid/lessarr"
 
 [encoder]
 backend   = "auto"        # auto | vaapi | qsv | software
@@ -31,6 +36,11 @@ keep_forced    = true
 # Keep only the newest original per file, and bound the rest.
 retention   = "48h"
 max_size_gb = 20
+
+[comparisons]
+# Generated before/after galleries are also bounded.
+retention   = "720h"
+max_size_gb = 2
 
 [[library]]
 name                = "Movies"

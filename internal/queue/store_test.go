@@ -382,3 +382,29 @@ func TestActiveJobAndResetForRetry(t *testing.T) {
 		t.Fatalf("reset job = %+v", job)
 	}
 }
+
+func TestIntegrityAndBackup(t *testing.T) {
+	s := openTest(t)
+	if _, err := s.Enqueue(Job{Path: "/media/a.mkv", Library: "Movies", Action: "transcode"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.IntegrityCheck(); err != nil {
+		t.Fatal(err)
+	}
+	backup := filepath.Join(t.TempDir(), "backup.db")
+	if err := s.Backup(backup); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := Open(backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	counts, err := restored.Counts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Pending != 1 {
+		t.Fatalf("backup pending = %d, want 1", counts.Pending)
+	}
+}

@@ -101,3 +101,31 @@ func TestReplaceRejectsDifferentDirectory(t *testing.T) {
 		t.Fatal("expected cross-directory replacement to be rejected")
 	}
 }
+
+func TestPreflightLeavesNoTempFiles(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "movie.mkv")
+	if err := os.WriteFile(source, []byte("source"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Preflight(source); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.Name() == "movie.mkv" || entry.Name() == TrashDir {
+			continue
+		}
+		t.Errorf("preflight left %q behind", entry.Name())
+	}
+	trash, err := os.ReadDir(filepath.Join(dir, TrashDir))
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if len(trash) != 0 {
+		t.Errorf("preflight left trash entries: %v", trash)
+	}
+}

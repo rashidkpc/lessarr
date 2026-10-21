@@ -3,10 +3,12 @@
 package web
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -66,6 +68,13 @@ func New(cfg *config.Config, store *queue.Store, version string, progress func()
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/healthz" && !s.authorized(w, r) {
+		return
+	}
+	if r.Method == http.MethodPost && !sameOrigin(r) {
+		http.Error(w, "cross-origin POST refused", http.StatusForbidden)
+		return
+	}
 	switch {
 	case r.URL.Path == "/healthz":
 		w.Header().Set("Content-Type", "text/plain")
@@ -131,6 +140,38 @@ func (s *Server) setPaused(w http.ResponseWriter, r *http.Request, paused bool) 
 		return
 	}
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+func (s *Server) authorized(w http.ResponseWriter, r *http.Request) bool {
+	if s.cfg.Server.Username == "" && s.cfg.Server.Password == "" {
+		return true
+	}
+	user, pass, ok := r.BasicAuth()
+	if ok {
+		userOK := subtle.ConstantTimeCompare([]byte(user), []byte(s.cfg.Server.Username)) == 1
+		passOK := subtle.ConstantTimeCompare([]byte(pass), []byte(s.cfg.Server.Password)) == 1
+		if userOK && passOK {
+			return true
+		}
+	}
+	w.Header().Set("WWW-Authenticate", `Basic realm="lessarr"`)
+	http.Error(w, "authentication required", http.StatusUnauthorized)
+	return false
+}
+
+func sameOrigin(r *http.Request) bool {
+	target := r.Header.Get("Origin")
+	if target == "" {
+		target = r.Header.Get("Referer")
+	}
+	if target == "" {
+		return true
+	}
+	parsed, err := url.Parse(target)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(parsed.Host, r.Host)
 }
 
 func (s *Server) retryJob(w http.ResponseWriter, r *http.Request) {

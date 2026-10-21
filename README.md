@@ -128,8 +128,19 @@ Every successful transcode also generates five interactive wipe comparisons
 under `/state/comparisons/<job-id>/`: drag the white bar to reveal
 the original or the new file. They are linked from the job page, and startup
 backfills existing transcodes whose originals are still in trash. Remuxes are
-skipped because the video is unchanged. Comparison files do not yet have a
-retention cap.
+skipped because the video is unchanged. Galleries are bounded by
+`[comparisons]` (`retention`, `max_size_gb`; defaults 30 days and 2 GiB).
+
+The dashboard and API can be protected with HTTP Basic Auth by setting
+`server.username` and `server.password`. State-changing POSTs are rejected when
+the browser's `Origin`/`Referer` does not match the dashboard host. `/healthz`
+stays unauthenticated for local health checks.
+
+`run` takes one process lock beside the database, verifies SQLite integrity on
+startup, writes a consistent `lessarr.db.bak` snapshot (rotating
+`lessarr.db.bak.prev`), removes stale crash temp files, and prunes old comparison
+galleries. Set `server.webhook_url` to receive a JSON POST when a job exhausts
+its retries or fails permanently.
 
 `selftest` is the first thing to run on a new machine. It does not assume the
 hardware works — it loads the driver, runs a short synthetic encode through each

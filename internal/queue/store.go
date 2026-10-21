@@ -28,22 +28,24 @@ const (
 func (j Job) StateName() string { return string(j.State) }
 
 type Job struct {
-	ID         int64
-	Path       string
-	Library    string
-	State      State
-	Action     string
-	Codec      string
-	Reason     string
-	SizeBefore int64
-	SizeAfter  int64
-	Attempts   int
-	Error      string
-	Backup     string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	StartedAt  time.Time
-	FinishedAt time.Time
+	ID                int64
+	Path              string
+	Library           string
+	State             State
+	Action            string
+	Codec             string
+	Reason            string
+	SizeBefore        int64
+	SizeAfter         int64
+	EstimatedBytes    int64
+	SavingsUnmeasured bool
+	Attempts          int
+	Error             string
+	Backup            string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	StartedAt         time.Time
+	FinishedAt        time.Time
 	// Retryable is a UI hint; it is not persisted.
 	Retryable bool `json:"-"`
 }
@@ -119,6 +121,51 @@ func Open(path string) (*Store, error) {
 
 func (s *Store) Close() error { return s.db.Close() }
 
+func (s *Store) IntegrityCheck() error {
+	rows, err := s.db.Query(`PRAGMA integrity_check`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var result string
+		if err := rows.Scan(&result); err != nil {
+			return err
+		}
+		if result != "ok" {
+			return fmt.Errorf("sqlite integrity check: %s", result)
+		}
+	}
+	return rows.Err()
+}
+
+// Backup writes a consistent snapshot beside the live database, rotating the
+// previous snapshot only after the new one has been written successfully.
+func (s *Store) Backup(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	previous := path + ".prev"
+	_ = os.Remove(tmp)
+	quoted := strings.ReplaceAll(tmp, "'", "''")
+	if _, err := s.db.Exec(`VACUUM INTO '` + quoted + `'`); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	_ = os.Remove(previous)
+	if _, err := os.Stat(path); err == nil {
+		if err := os.Rename(path, previous); err != nil {
+			_ = os.Remove(tmp)
+			return err
+		}
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Store) migrate() error {
 	stmts := []string{
 		`PRAGMA journal_mode=WAL`,
@@ -144,6 +191,8 @@ func (s *Store) migrate() error {
 			reason TEXT NOT NULL,
 			size_before INTEGER NOT NULL DEFAULT 0,
 			size_after INTEGER NOT NULL DEFAULT 0,
+			estimated_bytes INTEGER NOT NULL DEFAULT 0,
+			savings_unmeasured INTEGER NOT NULL DEFAULT 0,
 			attempts INTEGER NOT NULL DEFAULT 0,
 			error TEXT NOT NULL DEFAULT '',
 			backup TEXT NOT NULL DEFAULT '',
@@ -167,7 +216,42 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("migrate: %w", err)
 		}
 	}
+	if err := s.ensureColumn("jobs", "estimated_bytes", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("jobs", "savings_unmeasured", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (s *Store) ensureColumn(table, column, definition string) error {
+	rows, err := s.db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return err
+	}
+	found := false
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull, pk int
+		var dflt any
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if name == column {
+			found = true
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if found {
+		return nil
+	}
+	_, err = s.db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + definition)
+	return err
 }
 
 func (s *Store) File(path string) (File, bool, error) {
@@ -215,10 +299,10 @@ func (s *Store) enqueue(j Job, ignoreFailureCooldown bool) (bool, error) {
 	// If a config change gives this path a more specific library, move the
 	// existing pending job with it instead of leaving it under the old policy.
 	res, err := s.db.Exec(`UPDATE jobs SET
-		library=?, action=?, codec=?, reason=?, size_before=?, updated_at=?,
+		library=?, action=?, codec=?, reason=?, size_before=?, estimated_bytes=?, savings_unmeasured=?, updated_at=?,
 		next_attempt_at=CASE WHEN library <> ? THEN 0 ELSE next_attempt_at END
 		WHERE path=? AND state='pending'`,
-		j.Library, j.Action, j.Codec, j.Reason, j.SizeBefore, now, j.Library, j.Path)
+		j.Library, j.Action, j.Codec, j.Reason, j.SizeBefore, j.EstimatedBytes, j.SavingsUnmeasured, now, j.Library, j.Path)
 	if err != nil {
 		return false, fmt.Errorf("refresh pending job: %w", err)
 	}
@@ -228,10 +312,10 @@ func (s *Store) enqueue(j Job, ignoreFailureCooldown bool) (bool, error) {
 		return false, nil
 	}
 
-	query := `INSERT INTO jobs (path, library, state, action, codec, reason, size_before, created_at, updated_at)
-		SELECT ?, ?, 'pending', ?, ?, ?, ?, ?, ?
+	query := `INSERT INTO jobs (path, library, state, action, codec, reason, size_before, estimated_bytes, savings_unmeasured, created_at, updated_at)
+		SELECT ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?
 		WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE path = ? AND state IN ('pending','running'))`
-	args := []any{j.Path, j.Library, j.Action, j.Codec, j.Reason, j.SizeBefore, now, now, j.Path}
+	args := []any{j.Path, j.Library, j.Action, j.Codec, j.Reason, j.SizeBefore, j.EstimatedBytes, j.SavingsUnmeasured, now, now, j.Path}
 	if !ignoreFailureCooldown {
 		query += ` AND NOT EXISTS (SELECT 1 FROM jobs WHERE path = ? AND state = 'failed'
 			AND size_before = ? AND updated_at > ?)`
@@ -255,7 +339,7 @@ func (s *Store) Claim(now time.Time, writable ...string) (*Job, error) {
 	}
 	defer tx.Rollback()
 
-	query := `SELECT id, path, library, state, action, codec, reason, size_before, size_after,
+	query := `SELECT id, path, library, state, action, codec, reason, size_before, size_after, estimated_bytes, savings_unmeasured,
 		attempts, error, backup, created_at, updated_at, started_at, finished_at
 		FROM jobs WHERE state = 'pending' AND next_attempt_at <= ?`
 	args := []any{now.Unix()}
@@ -268,10 +352,10 @@ func (s *Store) Claim(now time.Time, writable ...string) (*Job, error) {
 	query += ` ORDER BY id LIMIT 1`
 
 	var j Job
-	var created, updated, started, finished int64
+	var created, updated, started, finished, unmeasured int64
 	err = tx.QueryRow(query, args...).
 		Scan(&j.ID, &j.Path, &j.Library, &j.State, &j.Action, &j.Codec, &j.Reason, &j.SizeBefore, &j.SizeAfter,
-			&j.Attempts, &j.Error, &j.Backup, &created, &updated, &started, &finished)
+			&j.EstimatedBytes, &unmeasured, &j.Attempts, &j.Error, &j.Backup, &created, &updated, &started, &finished)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -279,14 +363,21 @@ func (s *Store) Claim(now time.Time, writable ...string) (*Job, error) {
 		return nil, err
 	}
 	j.Attempts++
-	if _, err := tx.Exec(`UPDATE jobs SET state='running', attempts=?, started_at=?, updated_at=? WHERE id=?`,
-		j.Attempts, now.Unix(), now.Unix(), j.ID); err != nil {
+	res, err := tx.Exec(`UPDATE jobs SET state='running', attempts=?, started_at=?, updated_at=?
+		WHERE id=? AND state='pending'`, j.Attempts, now.Unix(), now.Unix(), j.ID)
+	if err != nil {
 		return nil, err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return nil, err
+	} else if n != 1 {
+		return nil, nil
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	j.State = Running
+	j.SavingsUnmeasured = unmeasured != 0
 	j.StartedAt = now
 	j.UpdatedAt = now
 	j.CreatedAt = time.Unix(created, 0)
@@ -481,7 +572,7 @@ func (s *Store) FilesSummary() (map[string]Summary, error) {
 // original. Startup backfill uses it to generate comparison images.
 // Backups returns successful jobs that still claim a retained original.
 func (s *Store) Backups() ([]Job, error) {
-	rows, err := s.db.Query(`SELECT id, path, library, state, action, codec, reason, size_before, size_after,
+	rows, err := s.db.Query(`SELECT id, path, library, state, action, codec, reason, size_before, size_after, estimated_bytes, savings_unmeasured,
 		attempts, error, backup, created_at, updated_at, started_at, finished_at
 		FROM jobs WHERE state='done' AND backup <> '' ORDER BY id`)
 	if err != nil {
@@ -510,7 +601,7 @@ func (s *Store) HasActiveJob(path string) (bool, error) {
 }
 
 func (s *Store) ActiveJob(path string) (*Job, error) {
-	row := s.db.QueryRow(`SELECT id, path, library, state, action, codec, reason, size_before, size_after,
+	row := s.db.QueryRow(`SELECT id, path, library, state, action, codec, reason, size_before, size_after, estimated_bytes, savings_unmeasured,
 		attempts, error, backup, created_at, updated_at, started_at, finished_at
 		FROM jobs WHERE path=? AND state IN ('pending','running') ORDER BY id LIMIT 1`, path)
 	j, err := scanJob(row)
@@ -532,7 +623,7 @@ func (s *Store) ResetPendingForRetry(jobID int64, library, codec string, size in
 }
 
 func (s *Store) DoneTranscodes() ([]Job, error) {
-	rows, err := s.db.Query(`SELECT id, path, library, state, action, codec, reason, size_before, size_after,
+	rows, err := s.db.Query(`SELECT id, path, library, state, action, codec, reason, size_before, size_after, estimated_bytes, savings_unmeasured,
 		attempts, error, backup, created_at, updated_at, started_at, finished_at
 		FROM jobs WHERE state='done' AND action='transcode' AND backup <> '' ORDER BY id`)
 	if err != nil {
@@ -558,7 +649,7 @@ func (s *Store) ByState(state State, limit int) ([]Job, error) {
 	if state == Pending || state == Running {
 		order = "id ASC"
 	}
-	rows, err := s.db.Query(`SELECT id, path, library, state, action, codec, reason, size_before, size_after,
+	rows, err := s.db.Query(`SELECT id, path, library, state, action, codec, reason, size_before, size_after, estimated_bytes, savings_unmeasured,
 		attempts, error, backup, created_at, updated_at, started_at, finished_at
 		FROM jobs WHERE state = ? ORDER BY `+order+` LIMIT ?`, state, limit)
 	if err != nil {
@@ -577,7 +668,7 @@ func (s *Store) ByState(state State, limit int) ([]Job, error) {
 }
 
 func (s *Store) Recent(limit int) ([]Job, error) {
-	rows, err := s.db.Query(`SELECT id, path, library, state, action, codec, reason, size_before, size_after,
+	rows, err := s.db.Query(`SELECT id, path, library, state, action, codec, reason, size_before, size_after, estimated_bytes, savings_unmeasured,
 		attempts, error, backup, created_at, updated_at, started_at, finished_at
 		FROM jobs ORDER BY id DESC LIMIT ?`, limit)
 	if err != nil {
@@ -597,7 +688,7 @@ func (s *Store) Recent(limit int) ([]Job, error) {
 
 // Job returns one job by ID, or nil when it does not exist.
 func (s *Store) Job(id int64) (*Job, error) {
-	row := s.db.QueryRow(`SELECT id, path, library, state, action, codec, reason, size_before, size_after,
+	row := s.db.QueryRow(`SELECT id, path, library, state, action, codec, reason, size_before, size_after, estimated_bytes, savings_unmeasured,
 		attempts, error, backup, created_at, updated_at, started_at, finished_at
 		FROM jobs WHERE id = ?`, id)
 	j, err := scanJob(row)
@@ -611,7 +702,7 @@ func (s *Store) Job(id int64) (*Job, error) {
 }
 
 func (s *Store) Current() (*Job, error) {
-	row := s.db.QueryRow(`SELECT id, path, library, state, action, codec, reason, size_before, size_after,
+	row := s.db.QueryRow(`SELECT id, path, library, state, action, codec, reason, size_before, size_after, estimated_bytes, savings_unmeasured,
 		attempts, error, backup, created_at, updated_at, started_at, finished_at
 		FROM jobs WHERE state='running' ORDER BY id LIMIT 1`)
 	j, err := scanJob(row)
@@ -630,12 +721,13 @@ type scanner interface {
 
 func scanJob(row scanner) (Job, error) {
 	var j Job
-	var created, updated, started, finished int64
+	var created, updated, started, finished, unmeasured int64
 	err := row.Scan(&j.ID, &j.Path, &j.Library, &j.State, &j.Action, &j.Codec, &j.Reason, &j.SizeBefore, &j.SizeAfter,
-		&j.Attempts, &j.Error, &j.Backup, &created, &updated, &started, &finished)
+		&j.EstimatedBytes, &unmeasured, &j.Attempts, &j.Error, &j.Backup, &created, &updated, &started, &finished)
 	if err != nil {
 		return j, err
 	}
+	j.SavingsUnmeasured = unmeasured != 0
 	j.CreatedAt = time.Unix(created, 0)
 	j.UpdatedAt = time.Unix(updated, 0)
 	if started > 0 {

@@ -3,7 +3,9 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -68,8 +70,19 @@ func Run(ctx context.Context, o Options) error {
 	if o.Config == nil || o.Store == nil {
 		return errors.New("daemon requires a config and store")
 	}
+	release, err := acquireProcessLock(filepath.Join(filepath.Dir(o.Config.Server.DB), "lessarr.lock"))
+	if err != nil {
+		return err
+	}
+	defer release()
 	if o.Log == nil {
 		o.Log = os.Stderr
+	}
+	if err := o.Store.IntegrityCheck(); err != nil {
+		return fmt.Errorf("database integrity check failed: %w", err)
+	}
+	if err := o.Store.Backup(o.Config.Server.DB + ".bak"); err != nil {
+		fmt.Fprintf(o.Log, "database backup: %v\n", err)
 	}
 	if o.Runner.FFmpeg == "" {
 		o.Runner = ffmpeg.NewRunner()
@@ -249,7 +262,8 @@ func (d *Daemon) sweep(ctx context.Context, force bool) error {
 			added, err := d.store.Enqueue(queue.Job{
 				Path: path, Library: lib.Name, Action: string(dec.Action),
 				Codec: info.Video.Codec, Reason: strings.Join(dec.Reasons, "; "),
-				SizeBefore: fi.Size(),
+				SizeBefore: fi.Size(), EstimatedBytes: dec.EstimatedOutputBytes,
+				SavingsUnmeasured: dec.VideoSavingsUnmeasured,
 			})
 			if err != nil {
 				fmt.Fprintf(d.log, "scan: queue %s: %v\n", path, err)
@@ -303,6 +317,7 @@ func (d *Daemon) runJob(ctx context.Context, n int, job *queue.Job) {
 	lib, ok := d.cfg.LibraryByName(job.Library)
 	if !ok {
 		_ = d.store.Fail(job.ID, job.Attempts, maxAttempts, "library no longer configured", retryDelay)
+		d.notifyFailure(job, "library no longer configured", true)
 		return
 	}
 	if !lib.Write {
@@ -335,10 +350,14 @@ func (d *Daemon) runJob(ctx context.Context, n int, job *queue.Job) {
 		if errors.As(err, &permanent) {
 			_ = d.store.Fail(job.ID, maxAttempts, maxAttempts, err.Error(), 0)
 			fmt.Fprintf(d.log, "job %d failed permanently: %v\n", job.ID, err)
+			d.notifyFailure(job, err.Error(), true)
 			return
 		}
 		_ = d.store.Fail(job.ID, job.Attempts, maxAttempts, err.Error(), retryDelay)
 		fmt.Fprintf(d.log, "job %d failed (attempt %d/%d): %v\n", job.ID, job.Attempts, maxAttempts, err)
+		if job.Attempts >= maxAttempts {
+			d.notifyFailure(job, err.Error(), true)
+		}
 		return
 	}
 	if result.Withheld {
@@ -465,6 +484,8 @@ func (d *Daemon) Retry(jobID int64) error {
 }
 
 func (d *Daemon) trashLoop(ctx context.Context) {
+	d.cleanupTemps()
+	d.pruneComparisons()
 	d.pruneTrash(ctx)
 	ticker := time.NewTicker(6 * time.Hour)
 	defer ticker.Stop()
@@ -473,8 +494,81 @@ func (d *Daemon) trashLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			d.cleanupTemps()
+			d.pruneComparisons()
 			d.pruneTrash(ctx)
+			if err := d.store.Backup(d.cfg.Server.DB + ".bak"); err != nil {
+				fmt.Fprintf(d.log, "database backup: %v\n", err)
+			}
 		}
+	}
+}
+
+func (d *Daemon) notifyFailure(job *queue.Job, message string, permanent bool) {
+	if d.cfg.Server.WebhookURL == "" {
+		return
+	}
+	body, err := json.Marshal(map[string]any{
+		"event":     "job_failed",
+		"permanent": permanent,
+		"id":        job.ID,
+		"path":      job.Path,
+		"library":   job.Library,
+		"action":    job.Action,
+		"attempts":  job.Attempts,
+		"error":     message,
+		"time":      time.Now().UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		fmt.Fprintf(d.log, "webhook %d: %v\n", job.ID, err)
+		return
+	}
+	url := d.cfg.Server.WebhookURL
+	go func() {
+		req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+		if err != nil {
+			fmt.Fprintf(d.log, "webhook %d: %v\n", job.ID, err)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			fmt.Fprintf(d.log, "webhook %d: %v\n", job.ID, err)
+			return
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			fmt.Fprintf(d.log, "webhook %d: status %s\n", job.ID, resp.Status)
+		}
+	}()
+}
+
+func (d *Daemon) pruneComparisons() {
+	stats, err := compare.Prune(
+		compare.Dir(d.cfg.Server.DB),
+		d.cfg.Comparisons.Retention.Std(),
+		d.cfg.Comparisons.MaxSizeGB*config.GB,
+		time.Now(),
+	)
+	if err != nil {
+		fmt.Fprintf(d.log, "comparisons: %v\n", err)
+		return
+	}
+	if stats.Deleted > 0 {
+		fmt.Fprintf(d.log, "comparisons: removed %d gallery/galleries, freed %s; %d kept\n",
+			stats.Deleted, humanBytes(stats.Freed), stats.Kept)
+	}
+}
+
+func (d *Daemon) cleanupTemps() {
+	n, err := cleanupStaleTemps(d.cfg.Libraries, compare.Dir(d.cfg.Server.DB), time.Now())
+	if err != nil {
+		fmt.Fprintf(d.log, "temp cleanup: %v\n", err)
+		return
+	}
+	if n > 0 {
+		fmt.Fprintf(d.log, "temp cleanup: removed %d stale item(s)\n", n)
 	}
 }
 

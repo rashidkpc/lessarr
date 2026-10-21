@@ -127,6 +127,9 @@ func Once(ctx context.Context, path string, o Options) (Result, error) {
 		return result, fmt.Errorf("insufficient free space: have %s, require %s",
 			humanBytes(free), humanBytes(need))
 	}
+	if err := swap.Preflight(path); err != nil {
+		return result, fmt.Errorf("replacement preflight failed (check write access and hardlinks): %w", err)
+	}
 
 	// CreateTemp uses the source directory so the final rename cannot cross a
 	// filesystem. Retain the .mkv suffix so FFmpeg selects the Matroska muxer.

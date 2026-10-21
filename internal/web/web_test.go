@@ -328,3 +328,41 @@ func TestProgressAppearsInStatusAndPage(t *testing.T) {
 		}
 	}
 }
+
+func TestBasicAuthRequired(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	store, err := queue.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	cfg := config.Default()
+	cfg.Server.DB = dbPath
+	cfg.Server.Username = "admin"
+	cfg.Server.Password = "secret"
+	cfg.Libraries = []config.Library{{Name: "Movies", Path: "/media/movies"}}
+	s := New(&cfg, store, "test", nil, nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated status = %d", w.Code)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.SetBasicAuth("admin", "secret")
+	w = httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("authenticated status = %d", w.Code)
+	}
+}
+
+func TestCrossOriginPostRejected(t *testing.T) {
+	s := testServer(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/pause", nil)
+	req.Header.Set("Origin", "http://evil.example")
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin status = %d", w.Code)
+	}
+}

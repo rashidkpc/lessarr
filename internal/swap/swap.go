@@ -83,6 +83,49 @@ func ReplacePrepared(source, output string) (string, error) {
 	return backup, nil
 }
 
+// Preflight verifies that the source directory supports the temp-file and
+// hardlink operations the swap needs before minutes are spent encoding.
+func Preflight(source string) error {
+	dir := filepath.Dir(source)
+	trashDir := filepath.Join(dir, TrashDir)
+	createdTrash := false
+	if _, err := os.Stat(trashDir); os.IsNotExist(err) {
+		createdTrash = true
+	}
+	if err := os.MkdirAll(trashDir, 0o700); err != nil {
+		return fmt.Errorf("create trash directory: %w", err)
+	}
+	defer func() {
+		if createdTrash {
+			// Remove only if still empty; an existing backup must survive.
+			_ = os.Remove(trashDir)
+		}
+	}()
+	temp, err := os.CreateTemp(dir, ".lessarr-preflight-*")
+	if err != nil {
+		return fmt.Errorf("create preflight temp: %w", err)
+	}
+	tempName := temp.Name()
+	if _, err := temp.Write([]byte("x")); err != nil {
+		_ = temp.Close()
+		_ = os.Remove(tempName)
+		return fmt.Errorf("write preflight temp: %w", err)
+	}
+	if err := temp.Close(); err != nil {
+		_ = os.Remove(tempName)
+		return err
+	}
+	defer os.Remove(tempName)
+	link := filepath.Join(trashDir, ".preflight-"+filepath.Base(tempName))
+	if err := os.Link(tempName, link); err != nil {
+		return fmt.Errorf("hardlink into trash (CIFS/SMB permissions): %w", err)
+	}
+	if err := os.Remove(link); err != nil {
+		return fmt.Errorf("remove preflight link: %w", err)
+	}
+	return nil
+}
+
 // Replace is the complete safe replacement operation.
 func Replace(source, output string) (string, error) {
 	if err := Prepare(source, output); err != nil {

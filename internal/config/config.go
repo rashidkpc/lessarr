@@ -23,12 +23,13 @@ const (
 
 // Config is the root of the configuration file.
 type Config struct {
-	Server    Server    `toml:"server"`
-	Encoder   Encoder   `toml:"encoder"`
-	Audio     Audio     `toml:"audio"`
-	Subtitles Subtitles `toml:"subtitles"`
-	Trash     Trash     `toml:"trash"`
-	Libraries []Library `toml:"library"`
+	Server      Server      `toml:"server"`
+	Encoder     Encoder     `toml:"encoder"`
+	Audio       Audio       `toml:"audio"`
+	Subtitles   Subtitles   `toml:"subtitles"`
+	Trash       Trash       `toml:"trash"`
+	Comparisons Comparisons `toml:"comparisons"`
+	Libraries   []Library   `toml:"library"`
 }
 
 type Trash struct {
@@ -36,10 +37,20 @@ type Trash struct {
 	MaxSizeGB int64    `toml:"max_size_gb"`
 }
 
+// Comparisons bounds the generated before/after galleries, which otherwise
+// grow with every transcode.
+type Comparisons struct {
+	Retention Duration `toml:"retention"`
+	MaxSizeGB int64    `toml:"max_size_gb"`
+}
+
 type Server struct {
-	Listen   string `toml:"listen"`
-	DB       string `toml:"db"`
-	LogLevel string `toml:"log_level"`
+	Listen     string `toml:"listen"`
+	DB         string `toml:"db"`
+	LogLevel   string `toml:"log_level"`
+	Username   string `toml:"username"`
+	Password   string `toml:"password"`
+	WebhookURL string `toml:"webhook_url"`
 }
 
 type Encoder struct {
@@ -153,6 +164,10 @@ func Default() Config {
 			Retention: Duration(48 * time.Hour),
 			MaxSizeGB: 20,
 		},
+		Comparisons: Comparisons{
+			Retention: Duration(30 * 24 * time.Hour),
+			MaxSizeGB: 2,
+		},
 	}
 }
 
@@ -247,11 +262,20 @@ func (c *Config) Validate() error {
 	if c.Encoder.Workers < 1 {
 		return fmt.Errorf("encoder.workers: must be >= 1")
 	}
+	if (c.Server.Username == "") != (c.Server.Password == "") {
+		return fmt.Errorf("server.username and server.password must be set together")
+	}
 	if c.Trash.Retention < 0 {
 		return fmt.Errorf("trash.retention: must be >= 0")
 	}
 	if c.Trash.MaxSizeGB < 0 {
 		return fmt.Errorf("trash.max_size_gb: must be >= 0")
+	}
+	if c.Comparisons.Retention < 0 {
+		return fmt.Errorf("comparisons.retention: must be >= 0")
+	}
+	if c.Comparisons.MaxSizeGB < 0 {
+		return fmt.Errorf("comparisons.max_size_gb: must be >= 0")
 	}
 
 	if len(c.Libraries) == 0 {

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSampleTimes(t *testing.T) {
@@ -37,5 +38,63 @@ func TestWriteIndexHasWipeSlider(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("comparison page missing %q", want)
 		}
+	}
+}
+
+func TestPruneByAgeAndSize(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now()
+	makeGallery := func(name string, age time.Duration, size int) string {
+		dir := filepath.Join(root, name)
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(dir, "01-original.png")
+		if err := os.WriteFile(path, make([]byte, size), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		stamp := now.Add(-age)
+		if err := os.Chtimes(path, stamp, stamp); err != nil {
+			t.Fatal(err)
+		}
+		return dir
+	}
+	old := makeGallery("1", 48*time.Hour, 10)
+	recent := makeGallery("2", time.Hour, 10)
+	newest := makeGallery("3", 0, 10)
+	work := filepath.Join(root, ".work-incomplete")
+	if err := os.MkdirAll(work, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	stats, err := Prune(root, 24*time.Hour, 0, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Deleted != 1 || stats.Freed != 10 {
+		t.Fatalf("age prune stats = %+v", stats)
+	}
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Error("old gallery was not removed")
+	}
+	if _, err := os.Stat(recent); err != nil {
+		t.Error("recent gallery was removed")
+	}
+	if _, err := os.Stat(work); err != nil {
+		t.Error("work directory should not be touched by Prune")
+	}
+
+	stats, err = Prune(root, 0, 15, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Deleted != 1 || stats.Kept != 1 {
+		t.Fatalf("size prune stats = %+v", stats)
+	}
+	if _, err := os.Stat(recent); !os.IsNotExist(err) {
+		t.Error("older gallery should be removed by the size cap")
+	}
+	if _, err := os.Stat(newest); err != nil {
+		t.Error("newest gallery must be kept")
 	}
 }

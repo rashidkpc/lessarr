@@ -7,8 +7,10 @@ import (
 	"context"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"time"
 
@@ -30,6 +32,93 @@ type Task struct {
 // Dir is the shared comparison root, kept beside the SQLite database.
 func Dir(dbPath string) string {
 	return filepath.Join(filepath.Dir(dbPath), "comparisons")
+}
+
+type PruneStats struct {
+	Deleted int
+	Freed   int64
+	Kept    int
+}
+
+type gallery struct {
+	path   string
+	size   int64
+	newest time.Time
+}
+
+// Prune removes galleries older than retention and then, if the total still
+// exceeds maxBytes, the oldest galleries. The newest gallery is never removed
+// by the size cap.
+func Prune(root string, retention time.Duration, maxBytes int64, now time.Time) (PruneStats, error) {
+	var stats PruneStats
+	entries, err := os.ReadDir(root)
+	if os.IsNotExist(err) {
+		return stats, nil
+	}
+	if err != nil {
+		return stats, err
+	}
+	galleries := make([]gallery, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		if _, err := strconv.ParseInt(entry.Name(), 10, 64); err != nil {
+			continue
+		}
+		g := gallery{path: filepath.Join(root, entry.Name())}
+		_ = filepath.WalkDir(g.path, func(path string, item fs.DirEntry, err error) error {
+			if err != nil || item.IsDir() {
+				return nil
+			}
+			info, err := item.Info()
+			if err != nil {
+				return nil
+			}
+			g.size += info.Size()
+			if info.ModTime().After(g.newest) {
+				g.newest = info.ModTime()
+			}
+			return nil
+		})
+		galleries = append(galleries, g)
+	}
+
+	kept := galleries[:0]
+	for _, g := range galleries {
+		if retention > 0 && !g.newest.IsZero() && now.Sub(g.newest) > retention {
+			if err := os.RemoveAll(g.path); err != nil {
+				return stats, err
+			}
+			stats.Deleted++
+			stats.Freed += g.size
+			continue
+		}
+		kept = append(kept, g)
+	}
+	galleries = kept
+
+	sort.Slice(galleries, func(i, j int) bool {
+		return galleries[i].newest.Before(galleries[j].newest)
+	})
+	var total int64
+	for _, g := range galleries {
+		total += g.size
+	}
+	if maxBytes > 0 {
+		for total > maxBytes && len(galleries) > 1 {
+			g := galleries[0]
+			if err := os.RemoveAll(g.path); err != nil {
+				return stats, err
+			}
+			galleries = galleries[1:]
+			total -= g.size
+			stats.Deleted++
+			stats.Freed += g.size
+		}
+	}
+	stats.Kept = len(galleries)
+	return stats, nil
 }
 
 // Generate writes five full-frame original/new pairs and an interactive wipe
