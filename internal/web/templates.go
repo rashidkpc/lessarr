@@ -263,6 +263,10 @@ const dashboardHTML = `{{define "dashboard"}}
 <tr><td colspan="7" class="muted">Nothing completed yet.</td></tr>
 {{end}}
 </table></div>
+{{if gt .DoneTotal 0}}<div class="files-footer muted">
+<span>Showing {{.DoneStart}}–{{.DoneEnd}} of {{.DoneTotal}}</span>
+<span class="pager">{{if .DonePrevHref}}<a class="page-link" href="{{.DonePrevHref}}">← Previous</a>{{end}}{{if .DoneNextHref}}<a class="page-link" href="{{.DoneNextHref}}">Next →</a>{{end}}</span>
+</div>{{end}}
 
 {{else if eq .Tab "failed"}}
 <div class="table-wrap"><table>
@@ -288,7 +292,7 @@ const dashboardHTML = `{{define "dashboard"}}
 {{end}}`
 
 const pageHTML = `{{define "page"}}{{template "head" .}}
-<div id="live" data-tab="{{.Tab}}">
+<div id="live" data-tab="{{.Tab}}" data-offset="{{.DoneOffset}}">
 {{template "dashboard" .}}
 </div>
 </div>
@@ -296,6 +300,7 @@ const pageHTML = `{{define "page"}}{{template "head" .}}
 (function () {
   var live = document.getElementById("live");
   var tab = live.getAttribute("data-tab") || "running";
+  var offset = live.getAttribute("data-offset") || "0";
   live.addEventListener("toggle", function (e) {
     if (e.target && e.target.classList && e.target.classList.contains("stages")) {
       sessionStorage.setItem("lessarr-stages", e.target.open ? "1" : "0");
@@ -306,7 +311,9 @@ const pageHTML = `{{define "page"}}{{template "head" .}}
       setTimeout(refresh, 2000);
       return;
     }
-    fetch("/fragment?tab=" + encodeURIComponent(tab), {cache: "no-store"})
+    var url = "/fragment?tab=" + encodeURIComponent(tab);
+    if (offset !== "0") url += "&offset=" + encodeURIComponent(offset);
+    fetch(url, {cache: "no-store"})
       .then(function (r) { return r.ok ? r.text() : ""; })
       .then(function (html) {
         if (!html) return;
@@ -517,7 +524,10 @@ Orphans are preserved by default — after database loss they may be the only re
 <div class="table-wrap"><table>
 <tr><th class="nowrap">Size</th><th>File</th><th class="nowrap">Job</th><th class="nowrap">Modified</th><th></th></tr>
 {{range .Report.TrackedItems}}
-<tr><td class="nowrap">{{bytes .Size}}</td><td class="path"><code>{{.Path}}</code></td><td><a href="/jobs/{{.JobID}}">#{{.JobID}}</a></td><td class="muted nowrap">{{when .ModTime}}</td><td class="actions">
+<tr><td class="nowrap">{{bytes .Size}}</td><td class="path"><code>{{.Path}}</code></td><td><a href="/jobs/{{.JobID}}">#{{.JobID}}</a></td><td class="muted nowrap">{{when .ModTime}}</td><td class="actions actions-stack">
+<form method="post" action="/api/jobs/{{.JobID}}/recover" onsubmit="return confirm('Recover this original over the current file? The job will be marked skipped and processing suppressed.')">
+<button class="restore small" type="submit">Recover</button>
+</form>
 <form method="post" action="/api/trash/delete" onsubmit="return confirm('Permanently delete this retained original? This cannot be undone.')">
 <input type="hidden" name="path" value="{{.Path}}">
 <button class="skip small" type="submit">Delete</button>

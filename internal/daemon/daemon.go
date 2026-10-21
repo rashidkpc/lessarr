@@ -139,7 +139,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 	fmt.Fprintf(d.log, "backend: %s (%s)\n", selection.Backend.Name, selection.Reason)
 
-	handler := web.New(d.cfg, d.store, o.Version, d.currentProgress, d.Retry, d.Restore, d.Skip, d.Unskip, d.DeleteTrashItem, d.EmptyTrash, d.Health)
+	handler := web.New(d.cfg, d.store, o.Version, d.currentProgress, d.Retry, d.Restore, d.Recover, d.Skip, d.Unskip, d.DeleteTrashItem, d.EmptyTrash, d.Health)
 	server := &http.Server{
 		Addr:              d.cfg.Server.Listen,
 		Handler:           handler,
@@ -553,9 +553,18 @@ func (d *Daemon) Unskip(path string) error {
 	return nil
 }
 
-// Restore puts the retained original back and opts the path out of automatic
-// processing. Retry is the explicit way to opt back in.
+// Restore puts the retained original back and marks the job failed/restored.
+// Retry is the explicit way to opt back in.
 func (d *Daemon) Restore(jobID int64) error {
+	return d.restoreOriginal(jobID, false)
+}
+
+// Recover puts the retained original back and marks it as an operator skip.
+func (d *Daemon) Recover(jobID int64) error {
+	return d.restoreOriginal(jobID, true)
+}
+
+func (d *Daemon) restoreOriginal(jobID int64, recovered bool) error {
 	d.trashMu.Lock()
 	defer d.trashMu.Unlock()
 	job, err := d.store.Job(jobID)
@@ -606,11 +615,19 @@ func (d *Daemon) Restore(jobID int64) error {
 		_ = d.store.ClearSuppression(job.Path)
 		return err
 	}
-	if err := d.store.MarkRestored(job.ID, job.Path, queue.RestoredReason, size, mtime); err != nil {
+	if recovered {
+		if err := d.store.MarkRecovered(job.ID, job.Path, queue.RecoveredReason, size, mtime); err != nil {
+			return fmt.Errorf("original recovered, but recording the status failed: %w", err)
+		}
+	} else if err := d.store.MarkRestored(job.ID, job.Path, queue.RestoredReason, size, mtime); err != nil {
 		return fmt.Errorf("original restored, but recording the undo failed: %w", err)
 	}
 	_ = os.RemoveAll(filepath.Join(compare.Dir(d.cfg.Server.DB), fmt.Sprintf("%d", job.ID)))
-	fmt.Fprintf(d.log, "job %d restored: %s; automatic processing suppressed\n", job.ID, job.Path)
+	if recovered {
+		fmt.Fprintf(d.log, "job %d recovered: %s; marked skipped, automatic processing suppressed\n", job.ID, job.Path)
+	} else {
+		fmt.Fprintf(d.log, "job %d restored: %s; automatic processing suppressed\n", job.ID, job.Path)
+	}
 	return nil
 }
 

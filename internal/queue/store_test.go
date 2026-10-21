@@ -617,3 +617,31 @@ func TestMarkPolicySkipped(t *testing.T) {
 		t.Fatalf("suppression = %q, %v", reason, err)
 	}
 }
+
+func TestMarkRecoveredMarksSkipped(t *testing.T) {
+	s := openTest(t)
+	path := "/media/movies/recovered.mkv"
+	if _, err := s.Enqueue(Job{Path: path, Library: "Movies", Action: "transcode", SizeBefore: 100}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.Claim(time.Now())
+	if err != nil || job == nil {
+		t.Fatal(err)
+	}
+	if err := s.Complete(job.ID, Done, 50, "/media/movies/.lessarr-trash/1-recovered.mkv"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkRecovered(job.ID, path, RecoveredReason, 100, 1000); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Job(job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != Skipped || got.Backup != "" || got.Error != RecoveredReason {
+		t.Fatalf("job = %+v", got)
+	}
+	if suppressed, err := s.Suppressed(path, 100, 1000); err != nil || !suppressed {
+		t.Fatalf("suppressed = %v, %v", suppressed, err)
+	}
+}

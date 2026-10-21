@@ -342,6 +342,9 @@ const OperatorSkipReason = "skipped by operator"
 // PolicySkipReason marks a file whose encode completed but missed a policy bar.
 const PolicySkipReason = "policy skip"
 
+// RecoveredReason marks a trash item put back by the operator.
+const RecoveredReason = "recovered from trash by operator"
+
 // Enqueue returns false when an active job exists, or when the same path and
 // size failed recently. The cooldown keeps a deterministic failure from being
 // re-queued on every scan.
@@ -823,20 +826,28 @@ func (s *Store) MarkPolicySkipped(jobID int64, path, reason string, size, mtime 
 
 // ByStates returns finished jobs across states, newest first.
 func (s *Store) ByStates(states []State, limit int) ([]Job, error) {
+	return s.ByStatesPage(states, limit, 0)
+}
+
+// ByStatesPage is ByStates with an offset for dashboard pagination.
+func (s *Store) ByStatesPage(states []State, limit, offset int) ([]Job, error) {
 	if limit <= 0 {
 		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
 	}
 	if len(states) == 0 {
 		return nil, nil
 	}
 	query := `SELECT id, path, library, state, action, codec, reason, size_before, size_after, estimated_bytes, savings_unmeasured,
 		attempts, error, backup, created_at, updated_at, started_at, finished_at
-		FROM jobs WHERE state IN (` + placeholders(len(states)) + `) ORDER BY id DESC LIMIT ?`
-	args := make([]any, 0, len(states)+1)
+		FROM jobs WHERE state IN (` + placeholders(len(states)) + `) ORDER BY id DESC LIMIT ? OFFSET ?`
+	args := make([]any, 0, len(states)+2)
 	for _, state := range states {
 		args = append(args, string(state))
 	}
-	args = append(args, limit)
+	args = append(args, limit, offset)
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
@@ -851,6 +862,42 @@ func (s *Store) ByStates(states []State, limit int) ([]Job, error) {
 		jobs = append(jobs, j)
 	}
 	return jobs, rows.Err()
+}
+
+// MarkRecovered records a successful trash recovery as an operator skip.
+func (s *Store) MarkRecovered(jobID int64, path, reason string, size, mtime int64) error {
+	now := time.Now()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`UPDATE jobs SET state='skipped', size_after=0, backup='', error=?,
+		next_attempt_at=0, updated_at=?, finished_at=? WHERE id=? AND state='done'`,
+		reason, now.Unix(), now.Unix(), jobID)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n != 1 {
+		return fmt.Errorf("job %d has no retained original", jobID)
+	}
+	if _, err := tx.Exec(`INSERT INTO file_suppressions (path, reason, size, mtime, created_at)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(path) DO UPDATE SET reason=excluded.reason, size=excluded.size,
+			mtime=excluded.mtime, created_at=excluded.created_at`,
+		path, OperatorSkipReason, size, mtime, now.Unix()); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM job_analysis WHERE job_id=?`, jobID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE files SET size=?, mtime=?, action='skip', codes='recovered',
+		reason=?, checked_at=? WHERE path=?`, size, mtime, reason, now.Unix(), path); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // RequeueSkipped makes the latest skipped job pending again after unskip.

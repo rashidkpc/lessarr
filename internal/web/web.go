@@ -27,6 +27,7 @@ type Server struct {
 	progress    func() *Progress
 	retry       func(int64) error
 	restore     func(int64) error
+	recover     func(int64) error
 	skip        func(int64) error
 	unskip      func(string) error
 	deleteTrash func(string) error
@@ -61,10 +62,10 @@ type Progress struct {
 	Updated     time.Time
 }
 
-func New(cfg *config.Config, store *queue.Store, version string, progress func() *Progress, retry, restore, skip func(int64) error, unskip func(string) error, deleteTrash func(string) error, emptyTrash func() (trash.Stats, error), healthFn func() health.Snapshot) *Server {
+func New(cfg *config.Config, store *queue.Store, version string, progress func() *Progress, retry, restore, recover, skip func(int64) error, unskip func(string) error, deleteTrash func(string) error, emptyTrash func() (trash.Stats, error), healthFn func() health.Snapshot) *Server {
 	return &Server{
 		cfg: cfg, store: store, version: version, progress: progress, retry: retry,
-		restore: restore, skip: skip, unskip: unskip, deleteTrash: deleteTrash, emptyTrash: emptyTrash, health: healthFn,
+		restore: restore, recover: recover, skip: skip, unskip: unskip, deleteTrash: deleteTrash, emptyTrash: emptyTrash, health: healthFn,
 		templates: template.Must(template.New("root").Funcs(template.FuncMap{
 			"bytes":        humanBytes,
 			"when":         humanWhen,
@@ -119,6 +120,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.retryJob(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/jobs/") && strings.HasSuffix(r.URL.Path, "/restore") && r.Method == http.MethodPost:
 		s.restoreJob(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/jobs/") && strings.HasSuffix(r.URL.Path, "/recover") && r.Method == http.MethodPost:
+		s.recoverJob(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/jobs/") && strings.HasSuffix(r.URL.Path, "/skip") && r.Method == http.MethodPost:
 		s.skipJob(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/jobs/") && strings.HasSuffix(r.URL.Path, "/prioritize") && r.Method == http.MethodPost:
@@ -193,6 +196,39 @@ func (s *Server) prepareStatus(r *http.Request) (Status, error) {
 		{Key: "queued", Label: "Queued", Count: status.Counts.Pending, Href: "/?tab=queued", Active: status.Tab == "queued"},
 		{Key: "done", Label: "Done", Count: status.Counts.Done + status.Counts.Skipped, Href: "/?tab=done", Active: status.Tab == "done"},
 		{Key: "failed", Label: "Failed", Count: status.Counts.Failed, Href: "/?tab=failed", Active: status.Tab == "failed"},
+	}
+	if status.Tab == "done" {
+		status.DoneLimit = 50
+		status.DoneTotal = status.Counts.Done + status.Counts.Skipped
+		offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+		if offset < 0 || offset >= status.DoneTotal {
+			offset = 0
+		}
+		if offset > 0 {
+			done, err := s.store.ByStatesPage([]queue.State{queue.Done, queue.Skipped}, status.DoneLimit, offset)
+			if err != nil {
+				return Status{}, err
+			}
+			status.Done = done
+			if status.Done == nil {
+				status.Done = []queue.Job{}
+			}
+		}
+		status.DoneOffset = offset
+		if len(status.Done) > 0 {
+			status.DoneStart = offset + 1
+			status.DoneEnd = offset + len(status.Done)
+		}
+		if offset > 0 {
+			prev := offset - status.DoneLimit
+			if prev < 0 {
+				prev = 0
+			}
+			status.DonePrevHref = statusHref("done", prev)
+		}
+		if offset+len(status.Done) < status.DoneTotal {
+			status.DoneNextHref = statusHref("done", offset+status.DoneLimit)
+		}
 	}
 	return status, nil
 }
@@ -273,6 +309,15 @@ func (s *Server) trashPage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func statusHref(tab string, offset int) string {
+	values := url.Values{}
+	values.Set("tab", tab)
+	if offset > 0 {
+		values.Set("offset", strconv.Itoa(offset))
+	}
+	return "/?" + values.Encode()
+}
+
 func (s *Server) setPaused(w http.ResponseWriter, r *http.Request, paused bool) {
 	if err := s.store.SetPaused(paused); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -315,6 +360,24 @@ func sameOrigin(r *http.Request) bool {
 		return false
 	}
 	return strings.EqualFold(parsed.Host, r.Host)
+}
+
+func (s *Server) recoverJob(w http.ResponseWriter, r *http.Request) {
+	idText := strings.Trim(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/jobs/"), "/recover"), "/")
+	id, err := strconv.ParseInt(idText, 10, 64)
+	if err != nil || id <= 0 {
+		http.Error(w, "invalid job id", http.StatusBadRequest)
+		return
+	}
+	if s.recover == nil {
+		http.Error(w, "recover is unavailable", http.StatusInternalServerError)
+		return
+	}
+	if err := s.recover(id); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	http.Redirect(w, r, "/trash", http.StatusSeeOther)
 }
 
 func (s *Server) restoreJob(w http.ResponseWriter, r *http.Request) {
@@ -467,6 +530,13 @@ type Status struct {
 	Queued        []queue.Job
 	UpNext        []queue.Job
 	Done          []queue.Job
+	DoneTotal     int
+	DoneOffset    int
+	DoneLimit     int
+	DoneStart     int
+	DoneEnd       int
+	DonePrevHref  string
+	DoneNextHref  string
 	Failed        []queue.Job
 	LibraryFiles  int
 	LibraryBytes  int64
@@ -495,7 +565,7 @@ func (s *Server) collect() (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	done, err := s.store.ByStates([]queue.State{queue.Done, queue.Skipped}, 20)
+	done, err := s.store.ByStates([]queue.State{queue.Done, queue.Skipped}, 50)
 	if err != nil {
 		return Status{}, err
 	}
