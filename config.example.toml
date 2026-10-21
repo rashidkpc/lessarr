@@ -35,7 +35,7 @@ keep_forced    = true
 [trash]
 # Keep only the newest original per file, and bound the rest.
 retention   = "48h"
-max_size_gb = 20
+max_size_gb = 30
 
 [comparisons]
 # Generated before/after galleries are also bounded.

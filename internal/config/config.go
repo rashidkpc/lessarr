@@ -162,7 +162,7 @@ func Default() Config {
 		},
 		Trash: Trash{
 			Retention: Duration(48 * time.Hour),
-			MaxSizeGB: 20,
+			MaxSizeGB: 30,
 		},
 		Comparisons: Comparisons{
 			Retention: Duration(30 * 24 * time.Hour),
