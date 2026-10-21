@@ -42,7 +42,7 @@ h2 { font-size:.78rem; text-transform:uppercase; letter-spacing:.07em; color:var
 .tab.active { background:#fffdf9; color:var(--text); box-shadow:0 1px 2px rgba(15,23,42,.1); }
 .tab .count { color:#9a9185; margin-left:.3rem; font-weight:400; }
 .tab.active .count { color:var(--muted); }
-.table-wrap { background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+.table-wrap { background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow-x:auto; overflow-y:hidden; box-shadow:0 1px 2px rgba(15,23,42,.04); }
 table { width:100%; border-collapse:collapse; }
 th, td { text-align:left; padding:.65rem .8rem; border-bottom:1px solid var(--border); vertical-align:middle; }
 th { font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; color:#9a9185; background:#f7f2e9; font-weight:600; }
@@ -52,7 +52,7 @@ tbody tr:hover td { background:#f7f2e9; }
 .ok { background:var(--ok-bg); color:var(--ok); }
 .warn { background:var(--warn-bg); color:var(--warn); }
 .err { background:var(--err-bg); color:var(--err); }
-button { background:#1f1f1f; color:#fff; border:0; border-radius:8px; padding:.45rem .85rem; font:inherit; font-weight:500; cursor:pointer; }
+button { background:#1f1f1f; color:#fff; border:0; border-radius:8px; padding:.45rem .85rem; font:inherit; font-weight:500; cursor:pointer; white-space:nowrap; }
 button:hover { background:var(--accent); }
 button.secondary { background:#fffdf9; color:#1f1f1f; border:1px solid #1f1f1f; }
 button.secondary:hover { background:#fff1c7; }
@@ -61,6 +61,9 @@ input[type=search] { background:#fffdf9; color:var(--text); border:1px solid var
 code { background:#f1ece2; color:#1f1f1f; border-radius:4px; padding:.08rem .3rem; font-size:.9em; word-break:break-word; }
 .path { word-break:break-all; }
 .nowrap { white-space:nowrap; }
+td.actions { white-space:nowrap; }
+td.actions form { display:inline-block; margin:0 .25rem 0 0; }
+td.actions form:last-child { margin-right:0; }
 .chips { margin:.55rem 0; }
 .chip { display:inline-block; padding:.2rem .6rem; border:1px solid var(--border); border-radius:999px; margin:0 .35rem .35rem 0; color:#3f3a33; background:#fffdf9; font-size:.85rem; }
 .chip:hover { text-decoration:none; border-color:#9a9185; }
@@ -169,7 +172,7 @@ const dashboardHTML = `{{define "dashboard"}}
 
 {{else if eq .Tab "done"}}
 <div class="table-wrap"><table>
-<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th class="nowrap">Result</th><th class="nowrap">When</th></tr>
+<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th class="nowrap">Result</th><th class="nowrap">When</th><th></th></tr>
 {{range .Done}}
 <tr>
 <td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
@@ -178,15 +181,19 @@ const dashboardHTML = `{{define "dashboard"}}
 <td><span class="badge">{{.Action}}</span></td>
 <td class="nowrap">{{bytes .SizeBefore}}{{if gt .SizeAfter 0}} → {{bytes .SizeAfter}} <span class="muted">({{saved .SizeBefore .SizeAfter}})</span>{{end}}</td>
 <td class="muted nowrap">{{when .FinishedAt}}</td>
+<td class="actions">
+{{if .Restorable}}<form method="post" action="/api/jobs/{{.ID}}/restore" onsubmit="return confirm('Restore the original and discard the transcoded output? Automatic processing will be suppressed.')"><button class="secondary small" type="submit">Restore</button></form>{{end}}
+{{if .Retryable}}<form method="post" action="/api/jobs/{{.ID}}/retry" onsubmit="return confirm('Restore the original and re-transcode with current settings?')"><button class="secondary small" type="submit">Retry</button></form>{{end}}
+</td>
 </tr>
 {{else}}
-<tr><td colspan="6" class="muted">Nothing completed yet.</td></tr>
+<tr><td colspan="7" class="muted">Nothing completed yet.</td></tr>
 {{end}}
 </table></div>
 
 {{else if eq .Tab "failed"}}
 <div class="table-wrap"><table>
-<tr><th>#</th><th>File</th><th>Library</th><th>Error</th><th>When</th></tr>
+<tr><th>#</th><th>File</th><th>Library</th><th>Error</th><th>When</th><th></th></tr>
 {{range .Failed}}
 <tr>
 <td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
@@ -194,9 +201,10 @@ const dashboardHTML = `{{define "dashboard"}}
 <td>{{.Library}}</td>
 <td>{{if .Restored}}<span class="badge warn">restored</span> <span class="muted">{{.Error}}</span>{{else}}<span class="err">{{.Error}}</span>{{end}}</td>
 <td class="muted">{{when .UpdatedAt}}</td>
+<td class="actions">{{if .Retryable}}<form method="post" action="/api/jobs/{{.ID}}/retry" onsubmit="return confirm('Retry this job with current settings?')"><button class="secondary small" type="submit">Retry</button></form>{{end}}</td>
 </tr>
 {{else}}
-<tr><td colspan="5" class="muted">No failures.</td></tr>
+<tr><td colspan="6" class="muted">No failures.</td></tr>
 {{end}}
 </table></div>
 {{end}}

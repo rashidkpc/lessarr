@@ -338,6 +338,13 @@ func (s *Server) collect() (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
+	for i := range done {
+		done[i].Retryable = s.retryable(&done[i])
+		done[i].Restorable = s.restorable(&done[i])
+	}
+	for i := range failed {
+		failed[i].Retryable = s.retryable(&failed[i])
+	}
 	trashStats, err := trash.Summary(s.store)
 	if err != nil {
 		return Status{}, err

@@ -46,6 +46,9 @@ type Job struct {
 	UpdatedAt         time.Time
 	StartedAt         time.Time
 	FinishedAt        time.Time
+	// Retryable and Restorable are UI hints; they are not persisted.
+	Retryable  bool `json:"-"`
+	Restorable bool `json:"-"`
 	// Restored distinguishes an operator undo from a retryable failure.
 	Restored bool `json:"-"`
 }
