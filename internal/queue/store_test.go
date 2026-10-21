@@ -360,3 +360,25 @@ func TestSavedSinceDoesNotGoNegative(t *testing.T) {
 		t.Fatalf("SavedSince = %d, %d; want 0, 1", saved, n)
 	}
 }
+
+func TestActiveJobAndResetForRetry(t *testing.T) {
+	s := openTest(t)
+	path := "/media/active.mkv"
+	if _, err := s.Enqueue(Job{Path: path, Library: "TV", Action: "remux", SizeBefore: 100}); err != nil {
+		t.Fatal(err)
+	}
+	active, err := s.ActiveJob(path)
+	if err != nil || active == nil {
+		t.Fatalf("ActiveJob = %+v, %v", active, err)
+	}
+	if err := s.ResetPendingForRetry(active.ID, "TV", "h264", 200); err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.Job(active.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.State != Pending || job.Attempts != 0 || job.Action != "transcode" || job.Codec != "h264" || job.SizeBefore != 200 {
+		t.Fatalf("reset job = %+v", job)
+	}
+}

@@ -505,9 +505,30 @@ func (s *Store) ClearBackup(jobID int64) error {
 }
 
 func (s *Store) HasActiveJob(path string) (bool, error) {
-	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM jobs WHERE path=? AND state IN ('pending','running')`, path).Scan(&n)
-	return n > 0, err
+	job, err := s.ActiveJob(path)
+	return job != nil, err
+}
+
+func (s *Store) ActiveJob(path string) (*Job, error) {
+	row := s.db.QueryRow(`SELECT id, path, library, state, action, codec, reason, size_before, size_after,
+		attempts, error, backup, created_at, updated_at, started_at, finished_at
+		FROM jobs WHERE path=? AND state IN ('pending','running') ORDER BY id LIMIT 1`, path)
+	j, err := scanJob(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &j, nil
+}
+
+func (s *Store) ResetPendingForRetry(jobID int64, library, codec string, size int64) error {
+	_, err := s.db.Exec(`UPDATE jobs SET state='pending', attempts=0, next_attempt_at=0, error='',
+		action='transcode', codec=?, reason='retry requested', size_before=?, library=?, updated_at=?
+		WHERE id=? AND state='pending'`,
+		codec, size, library, time.Now().Unix(), jobID)
+	return err
 }
 
 func (s *Store) DoneTranscodes() ([]Job, error) {

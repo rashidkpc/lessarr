@@ -17,6 +17,9 @@ func (s *Server) retryable(job *queue.Job) bool {
 	if job.State != queue.Done && job.State != queue.Failed {
 		return false
 	}
+	if active, err := s.store.ActiveJob(job.Path); err == nil && active != nil && active.State == queue.Running {
+		return false
+	}
 	lib, ok := s.cfg.LibraryFor(job.Path)
 	if !ok || !lib.Write {
 		return false

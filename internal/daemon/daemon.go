@@ -386,12 +386,12 @@ func (d *Daemon) Retry(jobID int64) error {
 	if !lib.Write {
 		return fmt.Errorf("library %q is observe-only; enable write before retrying", lib.Name)
 	}
-	active, err := d.store.HasActiveJob(job.Path)
+	active, err := d.store.ActiveJob(job.Path)
 	if err != nil {
 		return err
 	}
-	if active {
-		return fmt.Errorf("file already has an active job")
+	if active != nil && active.State == queue.Running {
+		return fmt.Errorf("file is currently being processed")
 	}
 
 	restore := false
@@ -441,6 +441,13 @@ func (d *Daemon) Retry(jobID int64) error {
 		if err := d.store.ClearBackup(job.ID); err != nil {
 			fmt.Fprintf(d.log, "retry %d: clear backup: %v\n", job.ID, err)
 		}
+	}
+	if active != nil {
+		if err := d.store.ResetPendingForRetry(active.ID, lib.Name, info.Video.Codec, info.Size); err != nil {
+			return err
+		}
+		fmt.Fprintf(d.log, "job %d retry: reset pending job %d\n", job.ID, active.ID)
+		return nil
 	}
 	added, err := d.store.EnqueueRetry(queue.Job{
 		Path: job.Path, Library: lib.Name, Action: string(decision.Transcode),
