@@ -15,6 +15,7 @@ import (
 
 	"github.com/rashidkpc/lessarr/internal/compare"
 	"github.com/rashidkpc/lessarr/internal/config"
+	"github.com/rashidkpc/lessarr/internal/health"
 	"github.com/rashidkpc/lessarr/internal/queue"
 	"github.com/rashidkpc/lessarr/internal/trash"
 )
@@ -30,6 +31,7 @@ type Server struct {
 	unskip      func(string) error
 	deleteTrash func(string) error
 	emptyTrash  func() (trash.Stats, error)
+	health      func() health.Snapshot
 	templates   *template.Template
 }
 
@@ -59,10 +61,10 @@ type Progress struct {
 	Updated     time.Time
 }
 
-func New(cfg *config.Config, store *queue.Store, version string, progress func() *Progress, retry, restore, skip func(int64) error, unskip func(string) error, deleteTrash func(string) error, emptyTrash func() (trash.Stats, error)) *Server {
+func New(cfg *config.Config, store *queue.Store, version string, progress func() *Progress, retry, restore, skip func(int64) error, unskip func(string) error, deleteTrash func(string) error, emptyTrash func() (trash.Stats, error), healthFn func() health.Snapshot) *Server {
 	return &Server{
 		cfg: cfg, store: store, version: version, progress: progress, retry: retry,
-		restore: restore, skip: skip, unskip: unskip, deleteTrash: deleteTrash, emptyTrash: emptyTrash,
+		restore: restore, skip: skip, unskip: unskip, deleteTrash: deleteTrash, emptyTrash: emptyTrash, health: healthFn,
 		templates: template.Must(template.New("root").Funcs(template.FuncMap{
 			"bytes":        humanBytes,
 			"when":         humanWhen,
@@ -76,7 +78,7 @@ func New(cfg *config.Config, store *queue.Store, version string, progress func()
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/healthz" && !s.authorized(w, r) {
+	if r.URL.Path != "/healthz" && r.URL.Path != "/readyz" && !s.authorized(w, r) {
 		return
 	}
 	if r.Method == http.MethodPost && !sameOrigin(r) {
@@ -89,6 +91,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("ok\n"))
 	case r.URL.Path == "/api/status":
 		s.statusJSON(w)
+	case r.URL.Path == "/api/health" && r.Method == http.MethodGet:
+		s.healthJSON(w)
+	case r.URL.Path == "/readyz" && r.Method == http.MethodGet:
+		s.ready(w, r)
 	case r.URL.Path == "/api/pause" && r.Method == http.MethodPost:
 		s.setPaused(w, r, true)
 	case r.URL.Path == "/api/resume" && r.Method == http.MethodPost:
@@ -126,6 +132,36 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+type healthResponse struct {
+	Version string    `json:"version"`
+	Time    time.Time `json:"time"`
+	health.Snapshot
+}
+
+func (s *Server) healthJSON(w http.ResponseWriter) {
+	snap := health.Snapshot{}
+	if s.health != nil {
+		snap = s.health()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(healthResponse{Version: s.version, Time: time.Now().UTC(), Snapshot: snap})
+}
+
+func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
+	if s.health == nil {
+		http.Error(w, "health check unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	if !s.health().OK {
+		http.Error(w, "unhealthy", http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain")
+	_, _ = w.Write([]byte("ok\n"))
 }
 
 func (s *Server) statusJSON(w http.ResponseWriter) {

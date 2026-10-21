@@ -1,12 +1,15 @@
 package daemon
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/rashidkpc/lessarr/internal/config"
+	"github.com/rashidkpc/lessarr/internal/ffmpeg"
+	"github.com/rashidkpc/lessarr/internal/queue"
 )
 
 func TestCleanupStaleTemps(t *testing.T) {
@@ -66,5 +69,24 @@ func TestCheckLibraries(t *testing.T) {
 	}
 	if err := checkLibraries([]config.Library{{Name: "Missing", Path: filepath.Join(dir, "nope")}}); err == nil {
 		t.Fatal("missing library should fail the mount check")
+	}
+}
+
+func TestHealthSnapshotHealthy(t *testing.T) {
+	store, err := queue.Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	cfg := config.Default()
+	cfg.Encoder.Device = "/dev/null"
+	d := &Daemon{
+		cfg: &cfg, store: store, log: io.Discard,
+		backend:  ffmpeg.Backend{Name: "software"},
+		writable: []string{"Movies"}, mountChecked: true, lastScan: time.Now(),
+	}
+	snap := d.Health()
+	if !snap.OK || !snap.Database.OK || !snap.Mount.OK || !snap.Encoder.OK || !snap.Scan.OK {
+		t.Fatalf("health = %+v", snap)
 	}
 }

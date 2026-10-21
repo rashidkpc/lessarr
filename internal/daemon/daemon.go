@@ -53,22 +53,26 @@ type Options struct {
 }
 
 type Daemon struct {
-	cfg         *config.Config
-	store       *queue.Store
-	runner      ffmpeg.Runner
-	prober      probe.Prober
-	backend     ffmpeg.Backend
-	hwDecode    map[string]bool
-	writable    []string
-	log         io.Writer
-	policy      decision.Policy
-	progressMu  sync.Mutex
-	progress    web.Progress
-	compareCh   chan int64
-	trashMu     sync.Mutex
-	mountMu     sync.Mutex
-	mountDown   bool
-	mountPaused bool
+	cfg          *config.Config
+	store        *queue.Store
+	runner       ffmpeg.Runner
+	prober       probe.Prober
+	backend      ffmpeg.Backend
+	hwDecode     map[string]bool
+	writable     []string
+	log          io.Writer
+	policy       decision.Policy
+	progressMu   sync.Mutex
+	progress     web.Progress
+	compareCh    chan int64
+	trashMu      sync.Mutex
+	mountMu      sync.Mutex
+	mountChecked bool
+	mountDown    bool
+	mountPaused  bool
+	mountErr     string
+	scanMu       sync.Mutex
+	lastScan     time.Time
 }
 
 // Run blocks until ctx is cancelled. With Once set it performs a single scan
@@ -134,7 +138,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 	fmt.Fprintf(d.log, "backend: %s (%s)\n", selection.Backend.Name, selection.Reason)
 
-	handler := web.New(d.cfg, d.store, o.Version, d.currentProgress, d.Retry, d.Restore, d.Skip, d.Unskip, d.DeleteTrashItem, d.EmptyTrash)
+	handler := web.New(d.cfg, d.store, o.Version, d.currentProgress, d.Retry, d.Restore, d.Skip, d.Unskip, d.DeleteTrashItem, d.EmptyTrash, d.Health)
 	server := &http.Server{
 		Addr:              d.cfg.Server.Listen,
 		Handler:           handler,
@@ -207,8 +211,15 @@ func (d *Daemon) scanLoop(ctx context.Context) {
 }
 
 func (d *Daemon) runScan(ctx context.Context, force bool) {
-	if err := d.sweep(ctx, force); err != nil && !errors.Is(err, context.Canceled) {
+	err := d.sweep(ctx, force)
+	if err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(d.log, "scan: %v\n", err)
+		return
+	}
+	if err == nil {
+		d.scanMu.Lock()
+		d.lastScan = time.Now()
+		d.scanMu.Unlock()
 	}
 }
 
@@ -737,7 +748,9 @@ func (d *Daemon) checkMounts() {
 	err := checkLibraries(d.cfg.Libraries)
 	d.mountMu.Lock()
 	defer d.mountMu.Unlock()
+	d.mountChecked = true
 	if err != nil {
+		d.mountErr = err.Error()
 		if d.mountDown {
 			return
 		}
@@ -759,6 +772,7 @@ func (d *Daemon) checkMounts() {
 		return
 	}
 	d.mountDown = false
+	d.mountErr = ""
 	fmt.Fprintf(d.log, "mount check recovered\n")
 	if d.mountPaused {
 		if err := d.store.SetPaused(false); err == nil {

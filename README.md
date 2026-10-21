@@ -164,6 +164,11 @@ pauses new claims and sends a `mount_failed` webhook; recovery resumes only a
 pause created by the watchdog. `lessarr version` reports the embedded git
 revision when built from a checkout.
 
+`/api/health` reports database, mount, encoder, scan, queue, pause, and version
+state for monitoring; `/readyz` returns `503` when those checks fail. See
+**[docs/HOME_ASSISTANT.md](docs/HOME_ASSISTANT.md)** for REST-only Home
+Assistant sensors.
+
 `selftest` is the first thing to run on a new machine. It does not assume the
 hardware works — it loads the driver, runs a short synthetic encode through each
 backend, decode-verifies the result, and reports the throughput. It also flags

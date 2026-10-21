@@ -14,6 +14,7 @@ import (
 
 	"github.com/rashidkpc/lessarr/internal/compare"
 	"github.com/rashidkpc/lessarr/internal/config"
+	"github.com/rashidkpc/lessarr/internal/health"
 	"github.com/rashidkpc/lessarr/internal/queue"
 )
 
@@ -28,7 +29,7 @@ func testServer(t *testing.T) *Server {
 	cfg := config.Default()
 	cfg.Server.DB = dbPath
 	cfg.Libraries = []config.Library{{Name: "Movies", Path: "/media/movies"}}
-	return New(&cfg, store, "test", nil, nil, nil, nil, nil, nil, nil)
+	return New(&cfg, store, "test", nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 func TestStatusPageRenders(t *testing.T) {
@@ -172,7 +173,7 @@ func TestSamplingProgressIsCollapsedWithSubBar(t *testing.T) {
 				{Label: "sampling 2/5", Done: true},
 				{Label: "sampling 3/5"},
 			}}
-	}, nil, nil, nil, nil, nil, nil)
+	}, nil, nil, nil, nil, nil, nil, nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
 	body := w.Body.String()
@@ -214,7 +215,7 @@ func TestRetryEndpoint(t *testing.T) {
 	cfg.Server.DB = dbPath
 	cfg.Libraries = []config.Library{{Name: "Movies", Path: "/media/movies", Write: true}}
 	var called int64
-	s := New(&cfg, store, "test", nil, func(id int64) error { called = id; return nil }, nil, nil, nil, nil, nil)
+	s := New(&cfg, store, "test", nil, func(id int64) error { called = id; return nil }, nil, nil, nil, nil, nil, nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/jobs/42/retry?tab=done", nil))
 	if w.Code != http.StatusSeeOther || called != 42 {
@@ -317,7 +318,7 @@ func TestProgressAppearsInStatusAndPage(t *testing.T) {
 			OutTime: 30 * time.Second, Duration: 2 * time.Minute, Speed: "2.4x",
 			TotalSize: 100 << 20, Started: now, Updated: now,
 			Steps: []Step{{Label: "preparing", Done: true}, {Label: "encoding"}}}
-	}, nil, nil, nil, nil, nil, nil)
+	}, nil, nil, nil, nil, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
@@ -351,7 +352,7 @@ func TestBasicAuthRequired(t *testing.T) {
 	cfg.Server.Username = "admin"
 	cfg.Server.Password = "secret"
 	cfg.Libraries = []config.Library{{Name: "Movies", Path: "/media/movies"}}
-	s := New(&cfg, store, "test", nil, nil, nil, nil, nil, nil, nil)
+	s := New(&cfg, store, "test", nil, nil, nil, nil, nil, nil, nil, nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
 	if w.Code != http.StatusUnauthorized {
@@ -397,7 +398,7 @@ func TestTrashReportPageAndAPI(t *testing.T) {
 	cfg := config.Default()
 	cfg.Server.DB = dbPath
 	cfg.Libraries = []config.Library{{Name: "Movies", Path: lib}}
-	s := New(&cfg, store, "test", nil, nil, nil, nil, nil, nil, nil)
+	s := New(&cfg, store, "test", nil, nil, nil, nil, nil, nil, nil, nil)
 	s.deleteTrash = func(path string) error { return os.Remove(path) }
 
 	w := httptest.NewRecorder()
@@ -660,5 +661,28 @@ func TestDoneTabActionsStacked(t *testing.T) {
 	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/?tab=done", nil))
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "actions actions-stack") {
 		t.Fatalf("done actions not stacked: %d", w.Code)
+	}
+}
+
+func TestHealthAndReadyz(t *testing.T) {
+	s := testServer(t)
+	s.health = func() health.Snapshot {
+		return health.Snapshot{OK: true, Database: health.Check{OK: true}}
+	}
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"ok": true`) {
+		t.Fatalf("health = %d: %s", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("readyz = %d", w.Code)
+	}
+	s.health = func() health.Snapshot { return health.Snapshot{} }
+	w = httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unhealthy readyz = %d", w.Code)
 	}
 }
