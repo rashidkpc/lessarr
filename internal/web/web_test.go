@@ -472,7 +472,7 @@ func TestMetricsPage(t *testing.T) {
 		t.Fatalf("metrics page = %d", w.Code)
 	}
 	body := w.Body.String()
-	for _, want := range []string{"Metrics", "Queue depth", "Failures", "Trash", "Reclaimed", "<svg", "axis-label"} {
+	for _, want := range []string{"Metrics", "Queue depth", "Failures", "Trash", "Reclaimed", "<svg", "y-axis"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("metrics page missing %q", want)
 		}

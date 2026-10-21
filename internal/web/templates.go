@@ -88,13 +88,15 @@ td.actions form:last-child { margin-right:0; }
 .chart-head { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; }
 .chart .label { font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; color:#9a9185; font-weight:600; }
 .chart .value { font-size:1.25rem; font-weight:700; white-space:nowrap; }
-.chart svg { display:block; width:100%; height:180px; margin-top:.8rem; overflow:visible; }
+.chart-plot { position:relative; height:230px; margin-top:.8rem; }
+.chart-plot svg { display:block; width:100%; height:100%; overflow:visible; }
+.chart .y-axis { position:absolute; left:0; top:0; bottom:0; width:15.625%; pointer-events:none; }
+.chart .y-axis span { position:absolute; right:6px; transform:translateY(-50%); color:var(--muted); font-size:10px; white-space:nowrap; }
 .chart .line { fill:none; stroke:var(--accent); stroke-width:2; vector-effect:non-scaling-stroke; }
 .chart .area { fill:var(--accent-soft); opacity:.8; stroke:none; }
 .chart circle { fill:var(--accent); }
 .chart .axis-line { stroke:var(--border); stroke-width:1; vector-effect:non-scaling-stroke; }
 .chart .grid { stroke:var(--border); stroke-width:1; vector-effect:non-scaling-stroke; opacity:.65; }
-.chart .axis-label { fill:var(--muted); font-size:10px; font-family:ui-sans-serif,system-ui,sans-serif; }
 .chart-axis { display:flex; justify-content:center; gap:.5rem; color:var(--muted); font-size:.75rem; margin-top:.4rem; }
 @media (max-width:640px) {
   body { padding:1.25rem .75rem 3rem; }
@@ -442,14 +444,17 @@ const metricsHTML = `{{define "metrics"}}{{template "head"}}
 <div class="chart">
 <div class="chart-head"><div><div class="label">{{.Title}}</div><div class="muted">{{.Subtitle}}</div></div><div class="value">{{.LastLabel}}</div></div>
 {{$chart := .}}
-<svg viewBox="0 0 640 180" preserveAspectRatio="xMidYMid meet" role="img">
+<div class="chart-plot">
+<svg viewBox="0 0 640 180" preserveAspectRatio="none" role="img">
 <line class="axis-line" x1="{{$chart.AxisLeft}}" y1="{{$chart.AxisTop}}" x2="{{$chart.AxisLeft}}" y2="{{$chart.AxisBottom}}"/>
 <line class="axis-line" x1="{{$chart.AxisLeft}}" y1="{{$chart.AxisBottom}}" x2="{{$chart.AxisRight}}" y2="{{$chart.AxisBottom}}"/>
 <path class="area" d="{{$chart.Area}}"/>
-{{range $chart.YTicks}}<line class="grid" x1="{{$chart.AxisLeft}}" y1="{{.Y}}" x2="{{$chart.AxisRight}}" y2="{{.Y}}"/><text class="axis-label" x="{{$chart.AxisLabelX}}" y="{{.Y}}" text-anchor="end" dominant-baseline="middle">{{.Label}}</text>{{end}}
+{{range $chart.YTicks}}<line class="grid" x1="{{$chart.AxisLeft}}" y1="{{.Y}}" x2="{{$chart.AxisRight}}" y2="{{.Y}}"/>{{end}}
 <path class="line" d="{{$chart.Path}}"/>
 <circle cx="{{$chart.LastX}}" cy="{{$chart.LastY}}" r="3"/>
 </svg>
+<div class="y-axis">{{range $chart.YTicks}}<span style="top:{{.Pct}}%">{{.Label}}</span>{{end}}</div>
+</div>
 <div class="chart-axis"><span>{{.FirstAt}} → {{.LastAt}}</span></div>
 </div>
 {{end}}

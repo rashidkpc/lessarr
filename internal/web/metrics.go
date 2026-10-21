@@ -17,6 +17,7 @@ type MetricsPage struct {
 
 type YTick struct {
 	Y     string
+	Pct   string
 	Label string
 }
 
@@ -36,7 +37,6 @@ type Chart struct {
 	AxisRight  string
 	AxisTop    string
 	AxisBottom string
-	AxisLabelX string
 	YTicks     []YTick
 	HasData    bool
 }
@@ -79,7 +79,7 @@ func buildCharts(points []queue.Metric) []Chart {
 
 func buildChart(points []queue.Metric, title, subtitle string, value func(queue.Metric) int64, bytes bool) Chart {
 	const width, height = 640.0, 180.0
-	const left, right, top, bottom = 64.0, 18.0, 12.0, 20.0
+	const left, right, top, bottom = 100.0, 18.0, 12.0, 20.0
 	chart := Chart{Title: title, Subtitle: subtitle}
 	minT, maxT := points[0].At, points[len(points)-1].At
 	if !maxT.After(minT) {
@@ -136,10 +136,12 @@ func buildChart(points []queue.Metric, title, subtitle string, value func(queue.
 	chart.AxisRight = fmt.Sprintf("%.1f", width-right)
 	chart.AxisTop = fmt.Sprintf("%.1f", top)
 	chart.AxisBottom = fmt.Sprintf("%.1f", height-bottom)
-	chart.AxisLabelX = fmt.Sprintf("%.1f", left-6)
 	for i := 0; i <= 4; i++ {
 		v := maxV * int64(i) / 4
-		chart.YTicks = append(chart.YTicks, YTick{Y: fmt.Sprintf("%.1f", yFor(v)), Label: format(v)})
+		y := yFor(v)
+		chart.YTicks = append(chart.YTicks, YTick{
+			Y: fmt.Sprintf("%.1f", y), Pct: fmt.Sprintf("%.3f", y/height*100), Label: format(v),
+		})
 	}
 	chart.HasData = true
 	return chart
