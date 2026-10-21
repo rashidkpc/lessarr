@@ -75,7 +75,7 @@ select { padding-right:1.8rem; }
 .files-table .col-decision { width:34%; }
 .files-table .col-checked { width:100px; }
 .files-table td.file { overflow-wrap:anywhere; }
-.files-table td.decision { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.files-table td.decision { white-space:normal; overflow-wrap:anywhere; }
 .file-meta { font-size:.78rem; color:var(--muted); margin-top:.2rem; }
 .files-footer { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-top:.7rem; }
 .files-footer .pager { display:flex; gap:.8rem; }
