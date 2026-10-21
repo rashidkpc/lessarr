@@ -562,6 +562,13 @@ func (d *Daemon) pruneComparisons() {
 }
 
 func (d *Daemon) cleanupTemps() {
+	// Never race an active encode: its temp file is the only copy of the work.
+	d.progressMu.Lock()
+	active := d.progress.JobID != 0
+	d.progressMu.Unlock()
+	if active {
+		return
+	}
 	n, err := cleanupStaleTemps(d.cfg.Libraries, compare.Dir(d.cfg.Server.DB), time.Now())
 	if err != nil {
 		fmt.Fprintf(d.log, "temp cleanup: %v\n", err)
