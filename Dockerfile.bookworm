@@ -13,7 +13,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
       -ldflags "-s -w -X main.version=${VERSION}" \
       -o /out/lessarr ./cmd/lessarr
 
-# Keep this image aligned with the Debian bookworm runtime used on the container host:
+# Keep this image aligned with the Debian bookworm runtime used on the deployment host:
 # Debian FFmpeg 5.1.9 plus the Intel media VAAPI driver.
 FROM debian:bookworm-slim
 

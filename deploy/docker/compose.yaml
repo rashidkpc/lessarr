@@ -9,7 +9,7 @@ services:
     init: true
     # Bridge networking is unreliable in this container host because runc cannot reopen
     # the unprivileged port sysctl. Host networking keeps the dashboard on the
-    # container host's normal LAN address.
+    # the host's normal LAN address.
     network_mode: host
     devices:
       - /dev/dri/renderD128:/dev/dri/renderD128

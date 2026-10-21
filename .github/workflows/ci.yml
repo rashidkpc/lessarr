@@ -91,7 +91,7 @@ jobs:
             VERSION=${{ github.sha }}
           tags: |
             ghcr.io/${{ github.repository }}:edge-bookworm
-            ghcr.io/${{ github.repository }}:sha-${{ github.sha }}-docker
+            ghcr.io/${{ github.repository }}:sha-${{ github.sha }}-bookworm
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=bookworm
           cache-to: type=gha,mode=max,scope=bookworm
