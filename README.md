@@ -18,18 +18,15 @@ cd lessarr
 
 sudo install -d -m 0755 /opt/lessarr
 sudo install -m 0644 deploy/docker/compose.yaml /opt/lessarr/compose.yaml
-sudo install -m 0644 deploy/docker/lessarr-compose.service /etc/systemd/system/lessarr-compose.service
 sudo install -m 0644 deploy/docker/.env.example /opt/lessarr/.env
-# Edit /opt/lessarr/.env with your config, state, media, and device paths.
 
-sudo systemctl daemon-reload
-sudo systemctl enable --now lessarr-compose.service
+# Edit /opt/lessarr/.env with your config, state, media, and device paths.
+cd /opt/lessarr
+sudo docker compose up -d
 ```
 
 The Compose file reads local paths from `/opt/lessarr/.env`. The container uses
-`ghcr.io/rashidkpc/lessarr:edge-bookworm` and host networking. If your media
-mount must be present before startup, add a local systemd drop-in with
-`RequiresMountsFor=<media mount>`.
+`ghcr.io/rashidkpc/lessarr:edge-bookworm` and host networking.
 
 ## Configure
 
@@ -55,43 +52,18 @@ write = false
 
 Set `write = true` only for libraries lessarr is allowed to modify.
 
-## Verify
-
-```sh
-set -a
-. /opt/lessarr/.env
-set +a
-
-sudo docker run --rm --network host \
-  --device "$LESSARR_DEVICE" \
-  -v "$LESSARR_MEDIA":/media \
-  ghcr.io/rashidkpc/lessarr:edge-bookworm selftest /media
-
-curl -fsS http://127.0.0.1:8585/readyz
-```
-
-The first scan can take a couple of minutes; `/readyz` returns `503` until it
-completes. Open `http://<host>:8585/` when it reports `ok`.
-
-Check the mounted configuration:
-
-```sh
-sudo docker exec lessarr /usr/local/bin/lessarr \
-  config-validate --config /config/config.toml
-```
-
 ## Update
 
 ```sh
 cd /opt/lessarr
 sudo docker compose pull
-sudo systemctl restart lessarr-compose.service
+sudo docker compose up -d
 ```
 
 ## Logs and status
 
 ```sh
-sudo systemctl status lessarr-compose.service
+cd /opt/lessarr
+sudo docker compose ps
 sudo docker logs --tail 100 lessarr
-sudo journalctl -u lessarr-compose.service -n 100
 ```

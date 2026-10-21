@@ -4,8 +4,7 @@ services:
   lessarr:
     image: ${LESSARR_IMAGE:-ghcr.io/rashidkpc/lessarr:edge-bookworm}
     container_name: lessarr
-    # systemd owns the lifecycle so it can start after the media mount.
-    restart: "no"
+    restart: unless-stopped
     init: true
     # Use host networking when bridge networking is unavailable on the Docker host.
     network_mode: host
