@@ -481,8 +481,8 @@ bitrate_kbps = 12000
 size_mb = 11059
 duration_s = 7200
 container = "matroska,webm"
-action = "transcode"
-codes = ["bpp_wasteful", "lossless_drop", "audio_prune"]
+action = "remux"
+codes = ["modern_copy", "lossless_drop", "audio_prune"]
 [[case.audio]]
 codec = "truehd"
 channels = 8
@@ -586,8 +586,8 @@ bitrate_kbps = 10000
 size_mb = 1800
 duration_s = 1440
 container = "matroska,webm"
-action = "transcode"
-codes = ["bpp_wasteful", "sub_prune"]
+action = "skip"
+codes = ["modern_copy", "compliant", "remux_below_bar"]
 [[case.audio]]
 codec = "ac3"
 channels = 6
@@ -693,7 +693,7 @@ lang = "jpn"
 default = true
 
 [[case]]
-name = "10-bit hevc is re-encoded when explicitly allowed"
+name = "10-bit hevc is copied when explicitly allowed"
 codec = "hevc"
 width = 1920
 height = 1080
@@ -704,8 +704,8 @@ size_mb = 11059
 duration_s = 7200
 container = "matroska,webm"
 allow_10bit = true
-action = "transcode"
-codes = ["bpp_wasteful", "lossless_convert"]
+action = "remux"
+codes = ["modern_copy", "lossless_convert"]
 [[case.audio]]
 codec = "flac"
 channels = 2

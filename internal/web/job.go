@@ -37,12 +37,28 @@ func (s *Server) retryable(job *queue.Job) bool {
 	return false
 }
 
+func (s *Server) restorable(job *queue.Job) bool {
+	if job.State != queue.Done || job.Backup == "" {
+		return false
+	}
+	if active, err := s.store.ActiveJob(job.Path); err == nil && active != nil {
+		return false
+	}
+	lib, ok := s.cfg.LibraryFor(job.Path)
+	if !ok || !lib.Write {
+		return false
+	}
+	fi, err := os.Lstat(job.Backup)
+	return err == nil && fi.Mode().IsRegular() && fi.Mode()&os.ModeSymlink == 0
+}
+
 type JobPage struct {
 	*queue.Job
 	Version       string
 	Analysis      *analysis.Result
 	HasComparison bool
 	CanRetry      bool
+	CanRestore    bool
 }
 
 func (s *Server) jobPage(w http.ResponseWriter, r *http.Request) {
@@ -65,6 +81,7 @@ func (s *Server) jobPage(w http.ResponseWriter, r *http.Request) {
 		page.HasComparison = true
 	}
 	page.CanRetry = s.retryable(job)
+	page.CanRestore = s.restorable(job)
 	if data, err := s.store.Analysis(id); err == nil && data != "" {
 		var result analysis.Result
 		if json.Unmarshal([]byte(data), &result) == nil {

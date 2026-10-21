@@ -83,6 +83,35 @@ func ReplacePrepared(source, output string) (string, error) {
 	return backup, nil
 }
 
+// Restore atomically puts a retained original back over the current output.
+// The backup must be the source directory's .lessarr-trash entry; the output
+// is discarded.
+func Restore(source, backup string) error {
+	source = filepath.Clean(source)
+	backup = filepath.Clean(backup)
+	wantDir := filepath.Join(filepath.Dir(source), TrashDir)
+	if filepath.Dir(backup) != wantDir {
+		return fmt.Errorf("backup %s is not in %s", backup, wantDir)
+	}
+	fi, err := os.Lstat(backup)
+	if err != nil {
+		return fmt.Errorf("stat backup: %w", err)
+	}
+	if !fi.Mode().IsRegular() || fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("backup is not a regular file")
+	}
+	if err := os.Rename(backup, source); err != nil {
+		return fmt.Errorf("restore original: %w", err)
+	}
+	if err := SyncDir(filepath.Dir(source)); err != nil {
+		return fmt.Errorf("restored, but directory fsync failed: %w", err)
+	}
+	if err := os.Remove(wantDir); err == nil {
+		_ = SyncDir(filepath.Dir(source))
+	}
+	return nil
+}
+
 // Preflight verifies that the source directory supports the temp-file and
 // hardlink operations the swap needs before minutes are spent encoding.
 func Preflight(source string) error {

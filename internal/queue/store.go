@@ -46,8 +46,11 @@ type Job struct {
 	UpdatedAt         time.Time
 	StartedAt         time.Time
 	FinishedAt        time.Time
-	// Retryable is a UI hint; it is not persisted.
-	Retryable bool `json:"-"`
+	// Retryable and Restorable are UI hints; they are not persisted.
+	Retryable  bool `json:"-"`
+	Restorable bool `json:"-"`
+	// Restored distinguishes an operator undo from a retryable failure.
+	Restored bool `json:"-"`
 }
 
 type File struct {
@@ -210,6 +213,11 @@ func (s *Store) migrate() error {
 			data TEXT NOT NULL,
 			created_at INTEGER NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS file_suppressions (
+			path TEXT PRIMARY KEY,
+			reason TEXT NOT NULL,
+			created_at INTEGER NOT NULL
+		)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -285,6 +293,10 @@ func (s *Store) PutFile(f File) error {
 
 const failureCooldown = 24 * time.Hour
 
+// RestoredReason marks an operator undo. Jobs remain in the failed tab so the
+// history is explicit, but they are not retried automatically.
+const RestoredReason = "restored from trash by operator"
+
 // Enqueue returns false when an active job exists, or when the same path and
 // size failed recently. The cooldown keeps a deterministic failure from being
 // re-queued on every scan.
@@ -292,7 +304,12 @@ func (s *Store) Enqueue(j Job) (bool, error) { return s.enqueue(j, false) }
 
 // EnqueueRetry is an explicit operator retry. It still refuses an active job,
 // but bypasses the automatic failure cooldown.
-func (s *Store) EnqueueRetry(j Job) (bool, error) { return s.enqueue(j, true) }
+func (s *Store) EnqueueRetry(j Job) (bool, error) {
+	if err := s.ClearSuppression(j.Path); err != nil {
+		return false, err
+	}
+	return s.enqueue(j, true)
+}
 
 func (s *Store) enqueue(j Job, ignoreFailureCooldown bool) (bool, error) {
 	now := time.Now().Unix()
@@ -320,6 +337,8 @@ func (s *Store) enqueue(j Job, ignoreFailureCooldown bool) (bool, error) {
 		query += ` AND NOT EXISTS (SELECT 1 FROM jobs WHERE path = ? AND state = 'failed'
 			AND size_before = ? AND updated_at > ?)`
 		args = append(args, j.Path, j.SizeBefore, now-int64(failureCooldown/time.Second))
+		query += ` AND NOT EXISTS (SELECT 1 FROM file_suppressions WHERE path = ?)`
+		args = append(args, j.Path)
 	}
 	res, err = s.db.Exec(query, args...)
 	if err != nil {
@@ -595,6 +614,55 @@ func (s *Store) ClearBackup(jobID int64) error {
 	return err
 }
 
+func (s *Store) Suppressed(path string) (bool, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM file_suppressions WHERE path=?`, path).Scan(&n)
+	return n > 0, err
+}
+
+func (s *Store) ClearSuppression(path string) error {
+	_, err := s.db.Exec(`DELETE FROM file_suppressions WHERE path=?`, path)
+	return err
+}
+
+// MarkRestored records an operator undo: the job is terminal, the retained
+// original is gone, and scans must not queue this path again until retry.
+func (s *Store) MarkRestored(jobID int64, path, reason string) error {
+	now := time.Now()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`UPDATE jobs SET state='failed', size_after=0, backup='', error=?,
+		next_attempt_at=0, updated_at=?, finished_at=? WHERE id=? AND state='done'`,
+		reason, now.Unix(), now.Unix(), jobID)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n != 1 {
+		return fmt.Errorf("job %d is no longer restorable", jobID)
+	}
+	if _, err := tx.Exec(`DELETE FROM jobs WHERE path=? AND state='pending'`, path); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT INTO file_suppressions (path, reason, created_at) VALUES (?, ?, ?)
+		ON CONFLICT(path) DO UPDATE SET reason=excluded.reason, created_at=excluded.created_at`,
+		path, reason, now.Unix()); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM job_analysis WHERE job_id=?`, jobID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE files SET action='skip', codes='restored', reason=?, checked_at=?
+		WHERE path=?`, reason, now.Unix(), path); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *Store) HasActiveJob(path string) (bool, error) {
 	job, err := s.ActiveJob(path)
 	return job != nil, err
@@ -728,6 +796,7 @@ func scanJob(row scanner) (Job, error) {
 		return j, err
 	}
 	j.SavingsUnmeasured = unmeasured != 0
+	j.Restored = j.State == Failed && strings.HasPrefix(j.Error, RestoredReason)
 	j.CreatedAt = time.Unix(created, 0)
 	j.UpdatedAt = time.Unix(updated, 0)
 	if started > 0 {

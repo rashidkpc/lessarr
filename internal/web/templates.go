@@ -178,7 +178,10 @@ const dashboardHTML = `{{define "dashboard"}}
 <td><span class="badge">{{.Action}}</span></td>
 <td class="nowrap">{{bytes .SizeBefore}}{{if gt .SizeAfter 0}} → {{bytes .SizeAfter}} <span class="muted">({{saved .SizeBefore .SizeAfter}})</span>{{end}}</td>
 <td class="muted nowrap">{{when .FinishedAt}}</td>
-<td>{{if .Retryable}}<form method="post" action="/api/jobs/{{.ID}}/retry" onsubmit="return confirm('Restore the original and re-transcode with current settings?')"><button class="secondary small" type="submit">Retry</button></form>{{end}}</td>
+<td>
+{{if .Restorable}}<form method="post" action="/api/jobs/{{.ID}}/restore" onsubmit="return confirm('Restore the original and discard the transcoded output? Automatic processing will be suppressed.')"><button class="secondary small" type="submit">Restore</button></form>{{end}}
+{{if .Retryable}}<form method="post" action="/api/jobs/{{.ID}}/retry" onsubmit="return confirm('Restore the original and re-transcode with current settings?')"><button class="secondary small" type="submit">Retry</button></form>{{end}}
+</td>
 </tr>
 {{else}}
 <tr><td colspan="7" class="muted">Nothing completed yet.</td></tr>
@@ -193,7 +196,7 @@ const dashboardHTML = `{{define "dashboard"}}
 <td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
 <td class="path"><a href="/jobs/{{.ID}}"><code>{{.Path}}</code></a></td>
 <td>{{.Library}}</td>
-<td><span class="err">{{.Error}}</span></td>
+<td>{{if .Restored}}<span class="badge warn">restored</span> <span class="muted">{{.Error}}</span>{{else}}<span class="err">{{.Error}}</span>{{end}}</td>
 <td class="muted">{{when .UpdatedAt}}</td>
 <td>{{if .Retryable}}<form method="post" action="/api/jobs/{{.ID}}/retry" onsubmit="return confirm('Retry this job with current settings?')"><button class="secondary small" type="submit">Retry</button></form>{{end}}</td>
 </tr>
@@ -289,15 +292,20 @@ Showing {{.Start}}–{{.End}} of {{.Total}}
 </body></html>{{end}}`
 
 const jobHTML = `{{define "job"}}{{template "head"}}
-<h1>Job #{{.ID}} <span class="badge {{if eq .StateName "done"}}ok{{else if eq .StateName "failed"}}err{{else if eq .StateName "running"}}warn{{end}}">{{.StateName}}</span></h1>
+<h1>Job #{{.ID}} <span class="badge {{if eq .StateName "done"}}ok{{else if eq .StateName "failed"}}err{{else if eq .StateName "running"}}warn{{end}}">{{.StateName}}</span>{{if .Restored}} <span class="badge warn">restored</span>{{end}}</h1>
 <div class="muted">
 {{if eq .StateName "pending"}}<a href="/?tab=queued">← Queued</a>{{else if eq .StateName "done"}}<a href="/?tab=done">← Done</a>{{else if eq .StateName "failed"}}<a href="/?tab=failed">← Failed</a>{{else}}<a href="/?tab=running">← Running</a>{{end}}
 &nbsp; <a href="/files?q={{urlquery .Path}}">file decisions</a>
 {{if .HasComparison}}&nbsp; <a href="/comparisons/{{.ID}}/">compare original vs new</a>{{end}}
 </div>
+{{if .CanRestore}}
+<form method="post" action="/api/jobs/{{.ID}}/restore" style="margin:.8rem 0" onsubmit="return confirm('Restore the original and discard the transcoded output? Automatic processing will be suppressed.')">
+<button type="submit">Restore original</button>
+</form>
+{{end}}
 {{if .CanRetry}}
 <form method="post" action="/api/jobs/{{.ID}}/retry" style="margin:.8rem 0" onsubmit="return confirm('Restore the original and re-transcode with current settings?')">
-<button type="submit">Retry with current settings</button>
+<button class="{{if .CanRestore}}secondary{{end}}" type="submit">Retry with current settings</button>
 </form>
 {{end}}
 

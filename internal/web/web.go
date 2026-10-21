@@ -25,6 +25,7 @@ type Server struct {
 	version   string
 	progress  func() *Progress
 	retry     func(int64) error
+	restore   func(int64) error
 	templates *template.Template
 }
 
@@ -54,9 +55,9 @@ type Progress struct {
 	Updated     time.Time
 }
 
-func New(cfg *config.Config, store *queue.Store, version string, progress func() *Progress, retry func(int64) error) *Server {
+func New(cfg *config.Config, store *queue.Store, version string, progress func() *Progress, retry, restore func(int64) error) *Server {
 	return &Server{
-		cfg: cfg, store: store, version: version, progress: progress, retry: retry,
+		cfg: cfg, store: store, version: version, progress: progress, retry: retry, restore: restore,
 		templates: template.Must(template.New("root").Funcs(template.FuncMap{
 			"bytes":  humanBytes,
 			"when":   humanWhen,
@@ -97,6 +98,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.trashJSON(w)
 	case strings.HasPrefix(r.URL.Path, "/api/jobs/") && strings.HasSuffix(r.URL.Path, "/retry") && r.Method == http.MethodPost:
 		s.retryJob(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/jobs/") && strings.HasSuffix(r.URL.Path, "/restore") && r.Method == http.MethodPost:
+		s.restoreJob(w, r)
 	case strings.HasPrefix(r.URL.Path, "/jobs/") && r.Method == http.MethodGet:
 		s.jobPage(w, r)
 	case strings.HasPrefix(r.URL.Path, "/comparisons/"):
@@ -218,6 +221,24 @@ func sameOrigin(r *http.Request) bool {
 	return strings.EqualFold(parsed.Host, r.Host)
 }
 
+func (s *Server) restoreJob(w http.ResponseWriter, r *http.Request) {
+	idText := strings.Trim(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/jobs/"), "/restore"), "/")
+	id, err := strconv.ParseInt(idText, 10, 64)
+	if err != nil || id <= 0 {
+		http.Error(w, "invalid job id", http.StatusBadRequest)
+		return
+	}
+	if s.restore == nil {
+		http.Error(w, "restore is unavailable", http.StatusInternalServerError)
+		return
+	}
+	if err := s.restore(id); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	http.Redirect(w, r, fmt.Sprintf("/jobs/%d", id), http.StatusSeeOther)
+}
+
 func (s *Server) retryJob(w http.ResponseWriter, r *http.Request) {
 	idText := strings.Trim(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/jobs/"), "/retry"), "/")
 	id, err := strconv.ParseInt(idText, 10, 64)
@@ -319,6 +340,7 @@ func (s *Server) collect() (Status, error) {
 	}
 	for i := range done {
 		done[i].Retryable = s.retryable(&done[i])
+		done[i].Restorable = s.restorable(&done[i])
 	}
 	for i := range failed {
 		failed[i].Retryable = s.retryable(&failed[i])

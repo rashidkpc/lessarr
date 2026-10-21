@@ -43,6 +43,7 @@ const (
 	CodeStarvedSource       Code = "starved_source"
 	CodeCodecGap            Code = "codec_gap"
 	CodeInterlaced          Code = "interlaced"
+	CodeModernCopy          Code = "modern_copy"
 	CodeBPPWasteful         Code = "bpp_wasteful"
 	CodeTranscodeDisallowed Code = "transcode_disallowed"
 	CodeLosslessConvert     Code = "lossless_convert"
@@ -185,22 +186,30 @@ func Decide(info *probe.MediaInfo, lib config.Library, pol Policy, opts Options)
 			videoCodes = append(videoCodes, CodeInterlaced)
 			videoReasons = append(videoReasons, "interlaced, will deinterlace")
 		}
+	case isModern(info.Video.Codec):
+		// HEVC and AV1 video is never re-encoded. It remains eligible for a
+		// lossless audio/subtitle/container remux below.
+		if bpp := info.BPP(); bpp > 0 && bpp >= wastefulFor(info) {
+			videoCodes = append(videoCodes, CodeModernCopy)
+			videoReasons = append(videoReasons,
+				fmt.Sprintf("%s at bpp %.3f is high, but %s video is copy-only",
+					codecLabel(info.Video.Codec), bpp, codecLabel(info.Video.Codec)))
+		}
+		if info.Video.Interlaced() {
+			videoReasons = append(videoReasons, "interlaced video is copied, not deinterlaced")
+		}
 	case info.Video.Interlaced():
 		transcode = true
 		videoCodes = append(videoCodes, CodeInterlaced)
 		videoReasons = append(videoReasons, "interlaced, will deinterlace")
-	default:
-		if bpp := info.BPP(); bpp > 0 && bpp >= wastefulFor(info) {
-			transcode = true
-			videoCodes = append(videoCodes, CodeBPPWasteful)
-			videoReasons = append(videoReasons,
-				fmt.Sprintf("%s at bpp %.3f is above the %.2f wasteful threshold",
-					codecLabel(info.Video.Codec), bpp, wastefulFor(info)))
-		}
 	}
 
 	if transcode && lib.Mode == "remux" {
 		return skip(CodeTranscodeDisallowed, "video needs re-encoding but library mode is remux-only")
+	}
+	if !transcode {
+		d.Codes = append(d.Codes, videoCodes...)
+		d.Reasons = append(d.Reasons, videoReasons...)
 	}
 
 	containerNeedsRemux, containerReason := needsContainerRemux(info)

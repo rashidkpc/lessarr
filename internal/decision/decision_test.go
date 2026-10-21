@@ -334,23 +334,46 @@ func TestPriorHardwareHEVCCanRemuxLosslessAudio(t *testing.T) {
 	}
 }
 
-func TestBPPWastefulDoesNotInventVideoSavings(t *testing.T) {
+func TestModernVideoIsCopyOnly(t *testing.T) {
+	for _, codec := range []string{"hevc", "av1"} {
+		t.Run(codec, func(t *testing.T) {
+			info := &probe.MediaInfo{
+				Size:         10_000 * config.MB,
+				Duration:     7200,
+				Container:    "matroska,webm",
+				VideoBitrate: 12_000_000,
+				Video:        probe.Video{Codec: codec, Width: 1920, Height: 1080, FPS: 24, BitDepth: 8},
+			}
+			got := Decide(info, config.DefaultLibrary(), defaultPolicy(), Options{})
+			if got.Action != Skip {
+				t.Fatalf("got %s %v, want skip for copy-only %s", got.Action, got.Codes, codec)
+			}
+			if got.Has(CodeBPPWasteful) || !got.Has(CodeModernCopy) {
+				t.Fatalf("codes = %v, want modern_copy and no bpp_wasteful", got.Codes)
+			}
+			if got.EstimatedSavings != 0 || got.EstimatedOutputBytes != 0 {
+				t.Errorf("must not invent video savings: savings=%v output=%d",
+					got.EstimatedSavings, got.EstimatedOutputBytes)
+			}
+		})
+	}
+}
+
+func TestModernVideoStillAllowsLosslessRemux(t *testing.T) {
 	info := &probe.MediaInfo{
 		Size:         10_000 * config.MB,
 		Duration:     7200,
+		Container:    "matroska,webm",
 		VideoBitrate: 12_000_000,
 		Video:        probe.Video{Codec: "hevc", Width: 1920, Height: 1080, FPS: 24, BitDepth: 8},
+		Audio:        []probe.Audio{{Index: 1, Codec: "truehd", Channels: 8, Language: "eng", Default: true}},
 	}
 	got := Decide(info, config.DefaultLibrary(), defaultPolicy(), Options{})
-	if got.Action != Transcode || !got.Has(CodeBPPWasteful) {
-		t.Fatalf("got %s %v, want bpp_wasteful transcode", got.Action, got.Codes)
+	if got.Action != Remux || !got.Has(CodeLosslessConvert) {
+		t.Fatalf("got %s %v, want lossless remux", got.Action, got.Codes)
 	}
-	if !got.VideoSavingsUnmeasured {
-		t.Fatal("already-modern codec transcode must be marked unmeasured")
-	}
-	if got.EstimatedSavings != 0 || got.EstimatedOutputBytes != info.Size {
-		t.Errorf("must not invent video savings: savings=%v output=%d source=%d",
-			got.EstimatedSavings, got.EstimatedOutputBytes, info.Size)
+	if got.Has(CodeCodecGap) {
+		t.Fatalf("remux must not claim a video transcode: %v", got.Codes)
 	}
 }
 

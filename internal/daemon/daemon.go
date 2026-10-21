@@ -23,6 +23,7 @@ import (
 	"github.com/rashidkpc/lessarr/internal/probe"
 	"github.com/rashidkpc/lessarr/internal/queue"
 	"github.com/rashidkpc/lessarr/internal/scan"
+	"github.com/rashidkpc/lessarr/internal/swap"
 	"github.com/rashidkpc/lessarr/internal/trash"
 	"github.com/rashidkpc/lessarr/internal/web"
 	"github.com/rashidkpc/lessarr/internal/worker"
@@ -123,7 +124,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 	fmt.Fprintf(d.log, "backend: %s (%s)\n", selection.Backend.Name, selection.Reason)
 
-	handler := web.New(d.cfg, d.store, o.Version, d.currentProgress, d.Retry)
+	handler := web.New(d.cfg, d.store, o.Version, d.currentProgress, d.Retry, d.Restore)
 	server := &http.Server{
 		Addr:              d.cfg.Server.Listen,
 		Handler:           handler,
@@ -220,6 +221,10 @@ func (d *Daemon) sweep(ctx context.Context, force bool) error {
 			}
 			if !settled(fi.ModTime(), lib, time.Now()) {
 				// Sonarr/nzbget may still be moving or renaming this file.
+				continue
+			}
+			if suppressed, err := d.store.Suppressed(path); err == nil && suppressed {
+				// Operator restored the original and opted out of processing.
 				continue
 			}
 			if !force {
@@ -384,6 +389,57 @@ func (d *Daemon) runJob(ctx context.Context, n int, job *queue.Job) {
 		d.enqueueCompare(job.ID)
 	}
 	d.pruneTrash(ctx)
+}
+
+// Restore puts the retained original back and opts the path out of automatic
+// processing. Retry is the explicit way to opt back in.
+func (d *Daemon) Restore(jobID int64) error {
+	d.trashMu.Lock()
+	defer d.trashMu.Unlock()
+	job, err := d.store.Job(jobID)
+	if err != nil {
+		return err
+	}
+	if job == nil {
+		return fmt.Errorf("job %d not found", jobID)
+	}
+	if job.State != queue.Done || job.Backup == "" {
+		return fmt.Errorf("job %d has no retained original", jobID)
+	}
+	lib, ok := d.cfg.LibraryFor(job.Path)
+	if !ok {
+		return fmt.Errorf("file is outside configured libraries")
+	}
+	if !lib.Write {
+		return fmt.Errorf("library %q is observe-only; enable write before restoring", lib.Name)
+	}
+	backup := filepath.Clean(job.Backup)
+	if filepath.Base(filepath.Dir(backup)) != ".lessarr-trash" {
+		return fmt.Errorf("refusing to restore non-trash path")
+	}
+	active, err := d.store.ActiveJob(job.Path)
+	if err != nil {
+		return err
+	}
+	if active != nil {
+		return fmt.Errorf("file has an active job; wait for it to finish before restoring")
+	}
+	fi, err := os.Lstat(backup)
+	if err != nil {
+		return fmt.Errorf("original is unavailable: %w", err)
+	}
+	if !fi.Mode().IsRegular() || fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("original is not a regular file")
+	}
+	if err := swap.Restore(job.Path, backup); err != nil {
+		return err
+	}
+	if err := d.store.MarkRestored(job.ID, job.Path, queue.RestoredReason); err != nil {
+		return fmt.Errorf("original restored, but recording the undo failed: %w", err)
+	}
+	_ = os.RemoveAll(filepath.Join(compare.Dir(d.cfg.Server.DB), fmt.Sprintf("%d", job.ID)))
+	fmt.Fprintf(d.log, "job %d restored: %s; automatic processing suppressed\n", job.ID, job.Path)
+	return nil
 }
 
 // Retry restores a retained original over the current output and queues a

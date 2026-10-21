@@ -129,3 +129,45 @@ func TestPreflightLeavesNoTempFiles(t *testing.T) {
 		t.Errorf("preflight left trash entries: %v", trash)
 	}
 }
+
+func TestRestoreOriginalFromTrash(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "movie.mkv")
+	backup := filepath.Join(dir, TrashDir, "123-movie.mkv")
+	if err := os.MkdirAll(filepath.Dir(backup), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, []byte("transcoded"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backup, []byte("original"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := Restore(source, backup); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "original" {
+		t.Errorf("source = %q, want original", got)
+	}
+	if _, err := os.Stat(backup); !os.IsNotExist(err) {
+		t.Error("backup still exists after restore")
+	}
+	if _, err := os.Stat(filepath.Dir(backup)); !os.IsNotExist(err) {
+		t.Error("empty trash directory was not removed")
+	}
+}
+
+func TestRestoreRefusesNonTrashBackup(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "movie.mkv")
+	backup := filepath.Join(dir, "not-trash.mkv")
+	_ = os.WriteFile(source, []byte("output"), 0o644)
+	_ = os.WriteFile(backup, []byte("original"), 0o644)
+	if err := Restore(source, backup); err == nil {
+		t.Fatal("expected non-trash backup to be rejected")
+	}
+}

@@ -408,3 +408,48 @@ func TestIntegrityAndBackup(t *testing.T) {
 		t.Fatalf("backup pending = %d, want 1", counts.Pending)
 	}
 }
+
+func TestSuppressionBlocksEnqueueAndRetryClears(t *testing.T) {
+	s := openTest(t)
+	path := "/media/movies/restored.mkv"
+	if _, err := s.Enqueue(Job{Path: path, Library: "Movies", Action: "transcode", SizeBefore: 100}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.Claim(time.Now())
+	if err != nil || job == nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if err := s.Complete(job.ID, Done, 50, "/media/movies/.lessarr-trash/1-restored.mkv"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkRestored(job.ID, path, RestoredReason); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Job(job.ID)
+	if err != nil || got == nil {
+		t.Fatal(err)
+	}
+	if got.State != Failed || !got.Restored || got.Backup != "" {
+		t.Fatalf("restored job = %+v", got)
+	}
+	if suppressed, err := s.Suppressed(path); err != nil || !suppressed {
+		t.Fatalf("suppressed = %v, %v", suppressed, err)
+	}
+	added, err := s.Enqueue(Job{Path: path, Library: "Movies", Action: "transcode", SizeBefore: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if added {
+		t.Fatal("automatic enqueue ignored suppression")
+	}
+	added, err = s.EnqueueRetry(Job{Path: path, Library: "Movies", Action: "transcode", SizeBefore: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !added {
+		t.Fatal("explicit retry did not enqueue")
+	}
+	if suppressed, err := s.Suppressed(path); err != nil || suppressed {
+		t.Fatalf("suppression survived retry: %v, %v", suppressed, err)
+	}
+}

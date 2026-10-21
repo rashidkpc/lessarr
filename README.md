@@ -36,7 +36,8 @@ the rest.
 | Encoder | Intel VAAPI, preferring hardware; QSV fallback; software for tests |
 | Target | HEVC 8-bit, MKV, direct-play friendly |
 | HDR / Dolby Vision | never transcoded — skipped by policy |
-| 10-bit HEVC | never re-encoded (hardware here outputs 8-bit only) |
+| HEVC / AV1 video | copy-only; remuxed for audio/subtitle/container cleanup, never re-encoded |
+| 10-bit HEVC | never re-encoded |
 | Prior Intel hardware HEVC | skipped when the stream tag identifies `hevc_vaapi` or `hevc_qsv` |
 | Audio | keeps default/original-language + English; lossless → E-AC-3 unless a lossy track already covers it |
 | Subtitles | keeps forced tracks + English + French; no OCR |
@@ -147,6 +148,11 @@ The **Trash** page (`/trash`, JSON at `/api/trash`) scans configured libraries f
 backups whose files are missing. Orphans are preserved rather than deleted: after
 database loss they may be the only recoverable copy.
 
+Completed jobs with a retained original show a **Restore** button. It atomically
+puts the original back, discards the transcoded output, marks the job failed with
+a `restored` badge, and suppresses automatic processing for that path. **Retry**
+clears the suppression if you want lessarr to process the file again.
+
 `selftest` is the first thing to run on a new machine. It does not assume the
 hardware works — it loads the driver, runs a short synthetic encode through each
 backend, decode-verifies the result, and reports the throughput. It also flags
@@ -188,23 +194,24 @@ them:
 
 - **Not HEVC/AV1** → almost always worth re-encoding. H.264→HEVC saves 40–60%,
   MPEG-2/VC-1/Xvid→HEVC saves 65–85%.
-- **Already HEVC/AV1** → prior `hevc_vaapi`/`hevc_qsv` outputs are skipped. Other
-  high-bitrate files are candidates, but their video savings are marked
-  unmeasured and excluded from projections until sample encoding exists.
+- **HEVC/AV1** → video is copy-only. Remux only when audio, subtitles, or the
+  container need cleanup; otherwise skip. High bitrate alone never triggers a
+  re-encode, because another lossy generation costs detail that SSIM tends to
+  hide.
 
 Efficiency is normalized as `bpp = video_bitrate / (width × height × fps)`,
 with the video bitrate sampled from real packets when the container does not
-record one — which MKV usually does not.
+record one — which MKV usually does not. It informs the codec-gap and
+starved-source decisions; it is not a re-encode trigger for modern video.
 
-Re-encode loops are prevented by four independent guards: a provenance tag
-written into every output, a database record, a higher savings bar for
-already-efficient codecs, and a per-file encode budget.
+Re-encode loops are prevented by independent guards: a provenance tag written
+into every output, a database record, copy-only handling for HEVC/AV1, and a
+per-file encode budget.
 
 The library already contains many prior `hevc_vaapi` encodes. Those are skipped
-to avoid stacking another lossy hardware generation. For other already-modern
-video that crosses the high-bitrate threshold, `stats` marks video savings as
-unmeasured and excludes them from the projection; codec-generation projections
-(for example H.264→HEVC) remain modeled, not measured.
+to avoid stacking another lossy hardware generation. All other HEVC/AV1 video
+is copy-only as well; codec-generation projections (for example H.264→HEVC)
+remain modeled, not measured.
 
 Resolution is preserved by default. When a cap is configured it applies to the
 **long edge**, never the height, so that a 2.40:1 film is not silently
