@@ -562,3 +562,32 @@ func TestLibraryTotalsAndReadyCount(t *testing.T) {
 		t.Fatalf("ready = %d, want 1", ready)
 	}
 }
+
+func TestPrioritizeMovesPendingJobToFront(t *testing.T) {
+	s := openTest(t)
+	if _, err := s.Enqueue(Job{Path: "/movies/a.mkv", Library: "Movies", Action: "transcode", SizeBefore: 10}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Enqueue(Job{Path: "/movies/b.mkv", Library: "Movies", Action: "transcode", SizeBefore: 10}); err != nil {
+		t.Fatal(err)
+	}
+	jobs, err := s.NextQueued(time.Now(), 5, "Movies")
+	if err != nil || len(jobs) != 2 {
+		t.Fatal(err)
+	}
+	second := jobs[1]
+	if err := s.Prioritize(second.ID, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	jobs, err = s.NextQueued(time.Now(), 5, "Movies")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs) != 2 || jobs[0].ID != second.ID {
+		t.Fatalf("order after prioritize = %+v", jobs)
+	}
+	claimed, err := s.Claim(time.Now(), "Movies")
+	if err != nil || claimed == nil || claimed.ID != second.ID {
+		t.Fatalf("claimed = %+v, %v", claimed, err)
+	}
+}
