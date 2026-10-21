@@ -63,7 +63,7 @@ func New(cfg *config.Config, store *queue.Store, version string, progress func()
 			"saved":  savedPercent,
 			"dur":    humanDuration,
 			"sbytes": signedBytes,
-		}).Parse(sharedHTML + dashboardHTML + pageHTML + filesHTML + jobHTML)),
+		}).Parse(sharedHTML + dashboardHTML + pageHTML + filesHTML + jobHTML + trashHTML)),
 	}
 }
 
@@ -91,6 +91,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.fragmentPage(w, r)
 	case r.URL.Path == "/files" && r.Method == http.MethodGet:
 		s.filesPage(w, r)
+	case r.URL.Path == "/trash" && r.Method == http.MethodGet:
+		s.trashPage(w, r)
+	case r.URL.Path == "/api/trash":
+		s.trashJSON(w)
 	case strings.HasPrefix(r.URL.Path, "/api/jobs/") && strings.HasSuffix(r.URL.Path, "/retry") && r.Method == http.MethodPost:
 		s.retryJob(w, r)
 	case strings.HasPrefix(r.URL.Path, "/jobs/") && r.Method == http.MethodGet:
@@ -132,6 +136,46 @@ func (s *Server) prepareStatus(r *http.Request) (Status, error) {
 		{Key: "failed", Label: "Failed", Count: status.Counts.Failed, Href: "/?tab=failed", Active: status.Tab == "failed"},
 	}
 	return status, nil
+}
+
+type TrashPage struct {
+	Version    string
+	Report     trash.Report
+	TrashLimit int64
+	Retention  string
+}
+
+func (s *Server) loadTrashReport() (trash.Report, error) {
+	return trash.BuildReport(s.store, s.cfg.Libraries)
+}
+
+func (s *Server) trashJSON(w http.ResponseWriter) {
+	report, err := s.loadTrashReport()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(report)
+}
+
+func (s *Server) trashPage(w http.ResponseWriter, r *http.Request) {
+	report, err := s.loadTrashReport()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	page := TrashPage{
+		Version: s.version, Report: report,
+		TrashLimit: s.cfg.Trash.MaxSizeGB,
+		Retention:  s.cfg.Trash.Retention.Std().String(),
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := s.templates.ExecuteTemplate(w, "trash", page); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func (s *Server) setPaused(w http.ResponseWriter, r *http.Request, paused bool) {

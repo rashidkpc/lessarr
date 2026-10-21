@@ -142,6 +142,11 @@ startup, writes a consistent `lessarr.db.bak` snapshot (rotating
 galleries. Set `server.webhook_url` to receive a JSON POST when a job exhausts
 its retries or fails permanently.
 
+The **Trash** page (`/trash`, JSON at `/api/trash`) scans configured libraries for
+`.lessarr-trash` files that no completed job references, and reports database
+backups whose files are missing. Orphans are preserved rather than deleted: after
+database loss they may be the only recoverable copy.
+
 `selftest` is the first thing to run on a new machine. It does not assume the
 hardware works — it loads the driver, runs a short synthetic encode through each
 backend, decode-verifies the result, and reports the throughput. It also flags

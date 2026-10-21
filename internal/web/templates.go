@@ -93,7 +93,7 @@ code { background:#f1ece2; color:#1f1f1f; border-radius:4px; padding:.08rem .3re
   <div class="brand">lessarr <span>v{{.Version}}</span></div>
   {{template "nav"}}
 </div>{{end}}
-{{define "nav"}}<nav><a href="/">Dashboard</a><a href="/files">Files</a></nav>{{end}}`
+{{define "nav"}}<nav><a href="/">Dashboard</a><a href="/files">Files</a><a href="/trash">Trash</a></nav>{{end}}`
 
 const dashboardHTML = `{{define "dashboard"}}
 <div class="toolbar">
@@ -108,7 +108,7 @@ const dashboardHTML = `{{define "dashboard"}}
 <div class="stat"><div class="label">Reclaimed · 24h</div><div class="value">{{bytes .Saved24h}}</div><div class="sub">{{.Done24h}} job(s)</div></div>
 <div class="stat"><div class="label">Reclaimed · 7d</div><div class="value">{{bytes .Saved7d}}</div><div class="sub">{{.Done7d}} job(s)</div></div>
 <div class="stat"><div class="label">Total reclaimed</div><div class="value">{{bytes .SavedTotal}}</div><div class="sub">{{.DoneTotal}} file(s)</div></div>
-<div class="stat"><div class="label">Trash</div><div class="value">{{bytes .TrashBytes}}</div><div class="sub">{{.TrashFiles}} file(s){{if gt .TrashLimitGB 0}} · cap {{.TrashLimitGB}} GB{{end}}</div></div>
+<div class="stat"><div class="label">Trash</div><div class="value">{{bytes .TrashBytes}}</div><div class="sub">{{.TrashFiles}} file(s){{if gt .TrashLimitGB 0}} · cap {{.TrashLimitGB}} GB{{end}} · <a href="/trash">report</a></div></div>
 </div>
 
 <div class="tabs">
@@ -348,6 +348,57 @@ const jobHTML = `{{define "job"}}{{template "head"}}
 {{if .Error}}
 <h2>Error</h2>
 <div class="panel" style="white-space:pre-wrap;background:#fef2f2;border-color:#fecaca;color:#991b1b">{{.Error}}</div>
+{{end}}
+</div>
+</body></html>{{end}}`
+
+const trashHTML = `{{define "trash"}}{{template "head"}}
+<div class="toolbar">
+<div><h1>Trash report</h1><div class="muted">Retained originals on disk compared with the database</div></div>
+</div>
+
+<div class="stats">
+<div class="stat"><div class="label">Tracked originals</div><div class="value">{{.Report.TrackedFiles}}</div><div class="sub">{{bytes .Report.TrackedBytes}}</div></div>
+<div class="stat"><div class="label">Orphan files</div><div class="value">{{len .Report.OrphanFiles}}</div><div class="sub">{{bytes .Report.OrphanBytes}}</div></div>
+<div class="stat"><div class="label">Missing originals</div><div class="value">{{len .Report.Missing}}</div><div class="sub">database references with no file</div></div>
+<div class="stat"><div class="label">Scanned</div><div class="value">{{.Report.ScannedDirs}}</div><div class="sub">trash directories</div></div>
+</div>
+
+<p class="muted">
+Policy: keep the newest original per source, retention {{.Retention}}, cap {{.TrashLimit}} GB.
+Orphans are preserved, not deleted automatically — after database loss they may be the only recoverable copy.
+</p>
+
+<h2>Orphan files</h2>
+{{if .Report.OrphanFiles}}
+<p class="muted">Files in a <code>.lessarr-trash</code> directory that no completed job references.</p>
+<div class="table-wrap"><table>
+<tr><th class="nowrap">Size</th><th>File</th><th class="nowrap">Modified</th></tr>
+{{range .Report.OrphanFiles}}
+<tr><td class="nowrap">{{bytes .Size}}</td><td class="path"><code>{{.Path}}</code></td><td class="muted nowrap">{{when .ModTime}}</td></tr>
+{{end}}
+</table></div>
+{{else}}
+<div class="panel muted">No orphan files.</div>
+{{end}}
+
+<h2>Missing originals</h2>
+{{if .Report.Missing}}
+<div class="table-wrap"><table>
+<tr><th>Job</th><th>Source</th><th>Expected original</th><th>Reason</th></tr>
+{{range .Report.Missing}}
+<tr><td><a href="/jobs/{{.JobID}}">{{.JobID}}</a></td><td class="path"><code>{{.Source}}</code></td><td class="path"><code>{{.Backup}}</code></td><td class="muted">{{.Reason}}</td></tr>
+{{end}}
+</table></div>
+{{else}}
+<div class="panel muted">No missing originals.</div>
+{{end}}
+
+{{if .Report.Errors}}
+<h2>Scan notes</h2>
+<div class="panel notice">
+{{range .Report.Errors}}<div class="path"><code>{{.}}</code></div>{{end}}
+</div>
 {{end}}
 </div>
 </body></html>{{end}}`

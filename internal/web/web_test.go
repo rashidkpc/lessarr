@@ -366,3 +366,53 @@ func TestCrossOriginPostRejected(t *testing.T) {
 		t.Fatalf("cross-origin status = %d", w.Code)
 	}
 }
+
+func TestTrashReportPageAndAPI(t *testing.T) {
+	dir := t.TempDir()
+	lib := filepath.Join(dir, "movies")
+	trashDir := filepath.Join(lib, ".lessarr-trash")
+	if err := os.MkdirAll(trashDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orphan := filepath.Join(trashDir, "orphan.mkv")
+	if err := os.WriteFile(orphan, []byte("orphan"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dbPath := filepath.Join(dir, "test.db")
+	store, err := queue.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	cfg := config.Default()
+	cfg.Server.DB = dbPath
+	cfg.Libraries = []config.Library{{Name: "Movies", Path: lib}}
+	s := New(&cfg, store, "test", nil, nil)
+
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/trash", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("trash page = %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "Trash report") || !strings.Contains(body, orphan) {
+		t.Errorf("trash page missing report content")
+	}
+
+	w = httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/trash", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("trash api = %d", w.Code)
+	}
+	var report struct {
+		OrphanFiles []struct {
+			Path string
+		}
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &report); err != nil {
+		t.Fatal(err)
+	}
+	if len(report.OrphanFiles) != 1 || report.OrphanFiles[0].Path != orphan {
+		t.Fatalf("api orphans = %+v", report.OrphanFiles)
+	}
+}

@@ -131,3 +131,27 @@ func TestPruneCapUsesGigabytes(t *testing.T) {
 		t.Fatalf("remaining %d files, want 3", stats.Files)
 	}
 }
+
+func TestBuildReportFindsOrphansAndMissing(t *testing.T) {
+	lib := t.TempDir()
+	tracked := backupFile(t, lib, "tracked.mkv", 10)
+	orphan := backupFile(t, lib, "orphan.mkv", 20)
+	missing := filepath.Join(lib, ".lessarr-trash", "missing.mkv")
+	store := &fakeStore{jobs: []queue.Job{
+		{ID: 1, Path: "/media/tracked.mkv", Backup: tracked},
+		{ID: 2, Path: "/media/missing.mkv", Backup: missing},
+	}}
+	report, err := BuildReport(store, []config.Library{{Name: "Movies", Path: lib}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.ScannedDirs != 1 || report.TrackedFiles != 1 || report.TrackedBytes != 10 {
+		t.Fatalf("report counts = %+v", report)
+	}
+	if len(report.OrphanFiles) != 1 || report.OrphanFiles[0].Path != orphan || report.OrphanBytes != 20 {
+		t.Fatalf("orphans = %+v", report.OrphanFiles)
+	}
+	if len(report.Missing) != 1 || report.Missing[0].JobID != 2 || report.Missing[0].Backup != missing {
+		t.Fatalf("missing = %+v", report.Missing)
+	}
+}
