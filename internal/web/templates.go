@@ -22,7 +22,8 @@ body { font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif
 nav { display:flex; gap:.2rem; background:#ece6da; padding:.25rem; border-radius:10px; }
 nav a { padding:.35rem .75rem; border-radius:7px; color:#3f3a33; font-weight:500; }
 nav a:hover { background:#fffdf9; color:var(--text); text-decoration:none; }
-nav a.active { background:#fffdf9; color:var(--text); box-shadow:0 1px 2px rgba(15,23,42,.1); }
+nav a.active { background:var(--accent); color:#fff; box-shadow:0 1px 2px rgba(15,23,42,.1); }
+nav a.active:hover { background:var(--accent); color:#fff; }
 a { color:var(--accent); text-decoration:none; }
 a:hover { text-decoration:underline; }
 h1 { font-size:1.35rem; margin:0 0 .3rem; }
