@@ -122,19 +122,20 @@ const compareHTML = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>lessarr comparison</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-body{font:15px/1.5 ui-sans-serif,system-ui,sans-serif;background:#f4f6f9;color:#1e293b;margin:2rem auto;max-width:1200px;padding:0 1rem 3rem}
-a{color:#2563eb;text-decoration:none}a:hover{text-decoration:underline}
+body::before{content:"";position:fixed;top:0;left:0;right:0;height:5px;background:linear-gradient(90deg,#d71920 0 33.33%,#f47b20 33.33% 66.66%,#f2c200 66.66% 100%);z-index:10}
+body{font:15px/1.5 ui-sans-serif,system-ui,sans-serif;background:#f6f3ec;color:#1f1f1f;margin:2rem auto;max-width:1200px;padding:0 1rem 3rem}
+a{color:#d71920;text-decoration:none}a:hover{text-decoration:underline}
 h1{font-size:1.35rem;margin:0 0 .3rem}
 figure{margin:0 0 2rem}
-.compare{position:relative;line-height:0;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;background:#fff;user-select:none;box-shadow:0 1px 2px rgba(15,23,42,.05)}
+.compare{position:relative;line-height:0;border:1px solid #e4ddd0;border-radius:12px;overflow:hidden;background:#fffefa;user-select:none;box-shadow:0 1px 2px rgba(15,23,42,.05)}
 .compare>img{display:block;width:100%;height:auto}
 .after{position:absolute;inset:0;overflow:hidden;clip-path:inset(0 0 0 50%)}
 .after img{position:absolute;top:0;left:0;width:100%;height:auto}
-.divider{position:absolute;top:0;bottom:0;left:50%;width:2px;background:#fff;box-shadow:0 0 6px rgba(15,23,42,.8);pointer-events:none}
-.divider:after{content:"";position:absolute;top:50%;left:50%;width:30px;height:30px;border-radius:50%;background:#fff;border:2px solid #2563eb;transform:translate(-50%,-50%);box-shadow:0 1px 6px rgba(15,23,42,.35)}
+.divider{position:absolute;top:0;bottom:0;left:50%;width:2px;background:#fffefa;box-shadow:0 0 6px rgba(15,23,42,.8);pointer-events:none}
+.divider:after{content:"";position:absolute;top:50%;left:50%;width:30px;height:30px;border-radius:50%;background:#fffefa;border:2px solid #d71920;transform:translate(-50%,-50%);box-shadow:0 1px 6px rgba(15,23,42,.35)}
 .compare input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:ew-resize}
-figcaption{color:#64748b;margin-top:.4rem;line-height:1.4}
-.legend{color:#64748b;margin:0 0 .8rem}
+figcaption{color:#6f6a61;margin-top:.4rem;line-height:1.4}
+.legend{color:#6f6a61;margin:0 0 .8rem}
 </style></head><body>
 <h1>Job {{.Task.ID}} comparison</h1>
 <p><a href="/jobs/{{.Task.ID}}">← job details</a> · duration {{printf "%.1f" .Duration}}s</p>
