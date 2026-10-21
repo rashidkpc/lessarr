@@ -169,7 +169,7 @@ const dashboardHTML = `{{define "dashboard"}}
 
 {{else if eq .Tab "done"}}
 <div class="table-wrap"><table>
-<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th class="nowrap">Result</th><th class="nowrap">When</th><th></th></tr>
+<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th class="nowrap">Result</th><th class="nowrap">When</th></tr>
 {{range .Done}}
 <tr>
 <td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
@@ -178,19 +178,15 @@ const dashboardHTML = `{{define "dashboard"}}
 <td><span class="badge">{{.Action}}</span></td>
 <td class="nowrap">{{bytes .SizeBefore}}{{if gt .SizeAfter 0}} → {{bytes .SizeAfter}} <span class="muted">({{saved .SizeBefore .SizeAfter}})</span>{{end}}</td>
 <td class="muted nowrap">{{when .FinishedAt}}</td>
-<td>
-{{if .Restorable}}<form method="post" action="/api/jobs/{{.ID}}/restore" onsubmit="return confirm('Restore the original and discard the transcoded output? Automatic processing will be suppressed.')"><button class="secondary small" type="submit">Restore</button></form>{{end}}
-{{if .Retryable}}<form method="post" action="/api/jobs/{{.ID}}/retry" onsubmit="return confirm('Restore the original and re-transcode with current settings?')"><button class="secondary small" type="submit">Retry</button></form>{{end}}
-</td>
 </tr>
 {{else}}
-<tr><td colspan="7" class="muted">Nothing completed yet.</td></tr>
+<tr><td colspan="6" class="muted">Nothing completed yet.</td></tr>
 {{end}}
 </table></div>
 
 {{else if eq .Tab "failed"}}
 <div class="table-wrap"><table>
-<tr><th>#</th><th>File</th><th>Library</th><th>Error</th><th>When</th><th></th></tr>
+<tr><th>#</th><th>File</th><th>Library</th><th>Error</th><th>When</th></tr>
 {{range .Failed}}
 <tr>
 <td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
@@ -198,10 +194,9 @@ const dashboardHTML = `{{define "dashboard"}}
 <td>{{.Library}}</td>
 <td>{{if .Restored}}<span class="badge warn">restored</span> <span class="muted">{{.Error}}</span>{{else}}<span class="err">{{.Error}}</span>{{end}}</td>
 <td class="muted">{{when .UpdatedAt}}</td>
-<td>{{if .Retryable}}<form method="post" action="/api/jobs/{{.ID}}/retry" onsubmit="return confirm('Retry this job with current settings?')"><button class="secondary small" type="submit">Retry</button></form>{{end}}</td>
 </tr>
 {{else}}
-<tr><td colspan="6" class="muted">No failures.</td></tr>
+<tr><td colspan="5" class="muted">No failures.</td></tr>
 {{end}}
 </table></div>
 {{end}}
