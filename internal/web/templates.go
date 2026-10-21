@@ -445,8 +445,8 @@ const metricsHTML = `{{define "metrics"}}{{template "head"}}
 <svg viewBox="0 0 640 180" preserveAspectRatio="xMidYMid meet" role="img">
 <line class="axis-line" x1="{{$chart.AxisLeft}}" y1="{{$chart.AxisTop}}" x2="{{$chart.AxisLeft}}" y2="{{$chart.AxisBottom}}"/>
 <line class="axis-line" x1="{{$chart.AxisLeft}}" y1="{{$chart.AxisBottom}}" x2="{{$chart.AxisRight}}" y2="{{$chart.AxisBottom}}"/>
-{{range $chart.YTicks}}<line class="grid" x1="{{$chart.AxisLeft}}" y1="{{.Y}}" x2="{{$chart.AxisRight}}" y2="{{.Y}}"/><text class="axis-label" x="{{$chart.AxisLabelX}}" y="{{.Y}}" text-anchor="end" dominant-baseline="middle">{{.Label}}</text>{{end}}
 <path class="area" d="{{$chart.Area}}"/>
+{{range $chart.YTicks}}<line class="grid" x1="{{$chart.AxisLeft}}" y1="{{.Y}}" x2="{{$chart.AxisRight}}" y2="{{.Y}}"/><text class="axis-label" x="{{$chart.AxisLabelX}}" y="{{.Y}}" text-anchor="end" dominant-baseline="middle">{{.Label}}</text>{{end}}
 <path class="line" d="{{$chart.Path}}"/>
 <circle cx="{{$chart.LastX}}" cy="{{$chart.LastY}}" r="3"/>
 </svg>
