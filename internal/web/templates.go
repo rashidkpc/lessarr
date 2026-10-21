@@ -150,7 +150,7 @@ const dashboardHTML = `{{define "dashboard"}}
 
 {{else if eq .Tab "queued"}}
 <div class="table-wrap"><table>
-<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th>Size</th><th>Queued</th></tr>
+<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th>Size</th><th>Estimate</th><th>Queued</th></tr>
 {{range .Queued}}
 <tr>
 <td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
@@ -158,10 +158,11 @@ const dashboardHTML = `{{define "dashboard"}}
 <td>{{.Library}}</td>
 <td><span class="badge">{{.Action}}</span></td>
 <td>{{bytes .SizeBefore}}</td>
+<td>{{if .SavingsUnmeasured}}<span class="muted">unmeasured</span>{{else if gt .EstimatedBytes 0}}~{{bytes .EstimatedBytes}}{{else}}—{{end}}</td>
 <td class="muted">{{when .CreatedAt}}</td>
 </tr>
 {{else}}
-<tr><td colspan="6" class="muted">Queue is empty.</td></tr>
+<tr><td colspan="7" class="muted">Queue is empty.</td></tr>
 {{end}}
 </table></div>
 {{if gt .Counts.Pending (len .Queued)}}<div class="muted" style="margin-top:.8rem"><a href="/files?queue=pending">View all queued files</a></div>{{end}}
