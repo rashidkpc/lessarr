@@ -116,6 +116,8 @@ td.actions-stack form:last-child { margin-bottom:0; }
 .step.current { background:var(--accent-soft); color:#7a4a00; }
 .step.pending { background:#fffdf9; color:#9a9185; }
 .toolbar { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; margin-bottom:.4rem; }
+.job-actions { display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; margin:.8rem 0; }
+.job-actions form { margin:0; }
 .charts { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:1rem; margin-top:1rem; }
 .chart { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem; box-shadow:0 1px 2px rgba(15,23,42,.04); }
 .chart-head { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; }
@@ -425,15 +427,19 @@ const jobHTML = `{{define "job"}}{{template "head" .}}
 &nbsp; <a href="/files?q={{urlquery .Path}}">file decisions</a>
 {{if .HasComparison}}&nbsp; <a href="/comparisons/{{.ID}}/">compare original vs new</a>{{end}}
 </div>
+{{if or .CanRestore .CanRetry}}
+<div class="job-actions">
 {{if .CanRestore}}
-<form method="post" action="/api/jobs/{{.ID}}/restore" style="margin:.8rem 0" onsubmit="return confirm('Restore the original and discard the transcoded output? Automatic processing will be suppressed.')">
+<form method="post" action="/api/jobs/{{.ID}}/restore" onsubmit="return confirm('Restore the original and discard the transcoded output? Automatic processing will be suppressed.')">
 <button class="restore" type="submit">Restore original</button>
 </form>
 {{end}}
 {{if .CanRetry}}
-<form method="post" action="/api/jobs/{{.ID}}/retry" style="margin:.8rem 0" onsubmit="return confirm('Restore the original and re-transcode with current settings?')">
+<form method="post" action="/api/jobs/{{.ID}}/retry" onsubmit="return confirm('Restore the original and re-transcode with current settings?')">
 <button class="retry" type="submit">Retry with current settings</button>
 </form>
+{{end}}
+</div>
 {{end}}
 
 <h2>File</h2>

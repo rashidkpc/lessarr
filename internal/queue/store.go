@@ -842,7 +842,9 @@ func (s *Store) ByStatesPage(states []State, limit, offset int) ([]Job, error) {
 	}
 	query := `SELECT id, path, library, state, action, codec, reason, size_before, size_after, estimated_bytes, savings_unmeasured,
 		attempts, error, backup, created_at, updated_at, started_at, finished_at
-		FROM jobs WHERE state IN (` + placeholders(len(states)) + `) ORDER BY id DESC LIMIT ? OFFSET ?`
+		FROM jobs WHERE state IN (` + placeholders(len(states)) + `)
+		ORDER BY CASE WHEN finished_at > 0 THEN finished_at ELSE updated_at END DESC, id DESC
+		LIMIT ? OFFSET ?`
 	args := make([]any, 0, len(states)+2)
 	for _, state := range states {
 		args = append(args, string(state))
@@ -1059,9 +1061,10 @@ func (s *Store) ByState(state State, limit int) ([]Job, error) {
 	if limit <= 0 {
 		limit = 25
 	}
-	order := "id DESC"
+	order := "updated_at DESC, id DESC"
 	if state == Pending {
-		order = "priority DESC, id ASC"
+		// Ready jobs first, then the same order Claim uses.
+		order = "(next_attempt_at <= strftime('%s','now')) DESC, priority DESC, id ASC"
 	} else if state == Running {
 		order = "id ASC"
 	}
