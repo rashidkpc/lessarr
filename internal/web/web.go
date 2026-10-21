@@ -26,6 +26,8 @@ type Server struct {
 	progress  func() *Progress
 	retry     func(int64) error
 	restore   func(int64) error
+	skip      func(int64) error
+	unskip    func(string) error
 	templates *template.Template
 }
 
@@ -55,9 +57,10 @@ type Progress struct {
 	Updated     time.Time
 }
 
-func New(cfg *config.Config, store *queue.Store, version string, progress func() *Progress, retry, restore func(int64) error) *Server {
+func New(cfg *config.Config, store *queue.Store, version string, progress func() *Progress, retry, restore, skip func(int64) error, unskip func(string) error) *Server {
 	return &Server{
-		cfg: cfg, store: store, version: version, progress: progress, retry: retry, restore: restore,
+		cfg: cfg, store: store, version: version, progress: progress, retry: retry,
+		restore: restore, skip: skip, unskip: unskip,
 		templates: template.Must(template.New("root").Funcs(template.FuncMap{
 			"bytes":        humanBytes,
 			"when":         humanWhen,
@@ -106,6 +109,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.retryJob(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/jobs/") && strings.HasSuffix(r.URL.Path, "/restore") && r.Method == http.MethodPost:
 		s.restoreJob(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/jobs/") && strings.HasSuffix(r.URL.Path, "/skip") && r.Method == http.MethodPost:
+		s.skipJob(w, r)
+	case r.URL.Path == "/api/files/unskip" && r.Method == http.MethodPost:
+		s.unskipFile(w, r)
 	case strings.HasPrefix(r.URL.Path, "/jobs/") && r.Method == http.MethodGet:
 		s.jobPage(w, r)
 	case strings.HasPrefix(r.URL.Path, "/comparisons/"):
@@ -268,6 +275,45 @@ func (s *Server) restoreJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, fmt.Sprintf("/jobs/%d", id), http.StatusSeeOther)
+}
+
+func (s *Server) skipJob(w http.ResponseWriter, r *http.Request) {
+	idText := strings.Trim(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/jobs/"), "/skip"), "/")
+	id, err := strconv.ParseInt(idText, 10, 64)
+	if err != nil || id <= 0 {
+		http.Error(w, "invalid job id", http.StatusBadRequest)
+		return
+	}
+	if s.skip == nil {
+		http.Error(w, "skip is unavailable", http.StatusInternalServerError)
+		return
+	}
+	if err := s.skip(id); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	http.Redirect(w, r, "/?tab=failed", http.StatusSeeOther)
+}
+
+func (s *Server) unskipFile(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimSpace(r.FormValue("path"))
+	if path == "" {
+		http.Error(w, "path is required", http.StatusBadRequest)
+		return
+	}
+	if s.unskip == nil {
+		http.Error(w, "unskip is unavailable", http.StatusInternalServerError)
+		return
+	}
+	if err := s.unskip(path); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	target := "/files"
+	if referer, err := url.Parse(r.Referer()); err == nil && strings.EqualFold(referer.Host, r.Host) && strings.HasPrefix(referer.Path, "/files") {
+		target = referer.RequestURI()
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
 func (s *Server) retryJob(w http.ResponseWriter, r *http.Request) {

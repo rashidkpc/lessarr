@@ -75,10 +75,12 @@ select { padding-right:1.8rem; }
 .files-table th, .files-table td { padding:.5rem .65rem; }
 .files-table th { position:sticky; top:0; z-index:1; }
 .files-table .col-size { width:170px; }
-.files-table .col-queue { width:165px; }
+.files-table .col-queue { width:210px; }
 .files-table .col-decision { width:34%; }
 .files-table .col-checked { width:100px; }
 .files-table td.file { overflow-wrap:anywhere; }
+.files-table td.queue { white-space:nowrap; }
+.files-table td.queue form { display:inline-block; margin-left:.35rem; }
 .files-table td.decision { white-space:normal; overflow-wrap:anywhere; }
 .file-meta { font-size:.78rem; color:var(--muted); margin-top:.2rem; }
 .files-footer { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-top:.7rem; }
@@ -263,7 +265,10 @@ const dashboardHTML = `{{define "dashboard"}}
 <td class="nowrap">{{sizePair .SizeBefore .SizeAfter}}</td>
 <td>{{if .Restored}}<span class="badge warn">restored</span> <span class="muted">{{.Error}}</span>{{else}}<span class="err">{{.Error}}</span>{{end}}</td>
 <td class="muted">{{when .UpdatedAt}}</td>
-<td class="actions">{{if .Retryable}}<form method="post" action="/api/jobs/{{.ID}}/retry?tab={{$.Tab}}" onsubmit="return confirm('Retry this job with current settings?')"><button class="secondary small" type="submit">Retry</button></form>{{end}}</td>
+<td class="actions">
+{{if .Retryable}}<form method="post" action="/api/jobs/{{.ID}}/retry?tab={{$.Tab}}" onsubmit="return confirm('Retry this job with current settings?')"><button class="secondary small" type="submit">Retry</button></form>{{end}}
+<form method="post" action="/api/jobs/{{.ID}}/skip?tab=failed" onsubmit="return confirm('Mark this file skipped and stop retrying it? You can unskip it from the Files page.')"><button class="secondary small" type="submit">Skip</button></form>
+</td>
 </tr>
 {{else}}
 <tr><td colspan="7" class="muted">No failures.</td></tr>
@@ -324,7 +329,7 @@ const filesHTML = `{{define "files"}}{{template "head" .}}
 <div class="table-wrap files-table-wrap">
 <table class="files-table">
 <colgroup><col><col class="col-size"><col class="col-queue"><col class="col-decision"><col class="col-checked"></colgroup>
-<thead><tr><th>File</th><th class="size">Size</th><th>Queue</th><th class="decision">Decision</th><th class="checked">Checked</th></tr></thead>
+<thead><tr><th>File</th><th class="size">Size</th><th>Status</th><th class="decision">Decision</th><th class="checked">Checked</th></tr></thead>
 <tbody>
 {{range .Rows}}
 <tr>
@@ -333,7 +338,7 @@ const filesHTML = `{{define "files"}}{{template "head" .}}
 <div class="file-meta">{{.Library}} · {{.Action}}{{if .JobID}} · <a href="/jobs/{{.JobID}}">#{{.JobID}}</a>{{end}}</div>
 </td>
 <td class="size nowrap">{{sizeEstimate .Size .EstimatedBytes .SavingsUnmeasured}}</td>
-<td class="queue">{{if .JobID}}<a href="/jobs/{{.JobID}}"><span class="badge {{.QueueClass}}">{{.QueueLabel}}</span></a>{{else if .QueueLabel}}<span class="badge {{.QueueClass}}">{{.QueueLabel}}</span>{{end}}</td>
+<td class="queue">{{if .JobID}}<a href="/jobs/{{.JobID}}"><span class="badge {{.QueueClass}}">{{.QueueLabel}}</span></a>{{else if .QueueLabel}}<span class="badge {{.QueueClass}}">{{.QueueLabel}}</span>{{end}}{{if .CanUnskip}}<form method="post" action="/api/files/unskip" onsubmit="return confirm('Allow lessarr to process this file again?')"><input type="hidden" name="path" value="{{.Path}}"><button class="secondary small" type="submit">Unskip</button></form>{{end}}</td>
 <td class="decision muted" title="{{.Reason}}">{{.Reason}}</td>
 <td class="checked muted nowrap">{{when .CheckedAt}}</td>
 </tr>

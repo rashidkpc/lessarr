@@ -13,6 +13,7 @@ type FileView struct {
 	queue.FileRow
 	QueueLabel string
 	QueueClass string
+	CanUnskip  bool
 }
 
 type FilterOption struct {
@@ -75,6 +76,16 @@ func (s *Server) filesPage(w http.ResponseWriter, r *http.Request) {
 	for _, row := range rows {
 		view := FileView{FileRow: row}
 		switch {
+		case row.SuppressedReason == queue.OperatorSkipReason:
+			view.QueueLabel = "skip"
+			view.QueueClass = "warn"
+			view.CanUnskip = writable[row.Library]
+		case row.SuppressedReason == queue.RestoredReason:
+			view.QueueLabel = "restored"
+			view.QueueClass = "warn"
+		case row.SuppressedReason != "":
+			view.QueueLabel = "suppressed"
+			view.QueueClass = "warn"
 		case row.JobID > 0:
 			view.QueueLabel = row.JobState
 			if row.JobState == string(queue.Running) {
@@ -83,7 +94,7 @@ func (s *Server) filesPage(w http.ResponseWriter, r *http.Request) {
 				view.QueueClass = "warn"
 			}
 		case row.Action == "skip":
-			view.QueueLabel = "—"
+			view.QueueLabel = "skip"
 		case writable[row.Library]:
 			view.QueueLabel = "not queued"
 		default:

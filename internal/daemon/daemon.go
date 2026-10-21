@@ -134,7 +134,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 	fmt.Fprintf(d.log, "backend: %s (%s)\n", selection.Backend.Name, selection.Reason)
 
-	handler := web.New(d.cfg, d.store, o.Version, d.currentProgress, d.Retry, d.Restore)
+	handler := web.New(d.cfg, d.store, o.Version, d.currentProgress, d.Retry, d.Restore, d.Skip, d.Unskip)
 	server := &http.Server{
 		Addr:              d.cfg.Server.Listen,
 		Handler:           handler,
@@ -409,6 +409,71 @@ func (d *Daemon) runJob(ctx context.Context, n int, job *queue.Job) {
 		d.enqueueCompare(job.ID)
 	}
 	d.pruneTrash(ctx)
+}
+
+// Skip marks a failed job as an operator skip. It disappears from the failed
+// tab and is suppressed from automatic queueing until Unskip.
+func (d *Daemon) Skip(jobID int64) error {
+	job, err := d.store.Job(jobID)
+	if err != nil {
+		return err
+	}
+	if job == nil {
+		return fmt.Errorf("job %d not found", jobID)
+	}
+	if job.State != queue.Failed {
+		return fmt.Errorf("job %d is not failed", jobID)
+	}
+	active, err := d.store.ActiveJob(job.Path)
+	if err != nil {
+		return err
+	}
+	if active != nil {
+		return fmt.Errorf("file has an active job; wait for it to finish before skipping")
+	}
+	fi, err := os.Lstat(job.Path)
+	if err != nil {
+		return fmt.Errorf("file is unavailable: %w", err)
+	}
+	if !fi.Mode().IsRegular() || fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("file is not a regular file")
+	}
+	if err := d.store.MarkSkipped(job.ID, job.Path, queue.OperatorSkipReason, fi.Size(), fi.ModTime().Unix()); err != nil {
+		return err
+	}
+	fmt.Fprintf(d.log, "job %d skipped by operator: %s\n", job.ID, job.Path)
+	return nil
+}
+
+// Unskip removes an operator skip and requeues the skipped job.
+func (d *Daemon) Unskip(path string) error {
+	lib, ok := d.cfg.LibraryFor(path)
+	if !ok {
+		return fmt.Errorf("file is outside configured libraries")
+	}
+	if !lib.Write {
+		return fmt.Errorf("library %q is observe-only; enable write before unskipping", lib.Name)
+	}
+	reason, err := d.store.SuppressionReason(path)
+	if err != nil {
+		return err
+	}
+	if reason != queue.OperatorSkipReason {
+		return fmt.Errorf("file is not skipped by the operator")
+	}
+	if err := d.store.ClearSuppression(path); err != nil {
+		return err
+	}
+	requeued, err := d.store.RequeueSkipped(path, time.Now())
+	if err != nil {
+		return err
+	}
+	if requeued {
+		fmt.Fprintf(d.log, "unskipped and requeued: %s\n", path)
+	} else {
+		fmt.Fprintf(d.log, "unskipped; queued on next scan: %s\n", path)
+	}
+	return nil
 }
 
 // Restore puts the retained original back and opts the path out of automatic

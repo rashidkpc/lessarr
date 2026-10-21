@@ -28,7 +28,7 @@ func testServer(t *testing.T) *Server {
 	cfg := config.Default()
 	cfg.Server.DB = dbPath
 	cfg.Libraries = []config.Library{{Name: "Movies", Path: "/media/movies"}}
-	return New(&cfg, store, "test", nil, nil, nil)
+	return New(&cfg, store, "test", nil, nil, nil, nil, nil)
 }
 
 func TestStatusPageRenders(t *testing.T) {
@@ -172,7 +172,7 @@ func TestSamplingProgressIsCollapsedWithSubBar(t *testing.T) {
 				{Label: "sampling 2/5", Done: true},
 				{Label: "sampling 3/5"},
 			}}
-	}, nil, nil)
+	}, nil, nil, nil, nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
 	body := w.Body.String()
@@ -214,7 +214,7 @@ func TestRetryEndpoint(t *testing.T) {
 	cfg.Server.DB = dbPath
 	cfg.Libraries = []config.Library{{Name: "Movies", Path: "/media/movies", Write: true}}
 	var called int64
-	s := New(&cfg, store, "test", nil, func(id int64) error { called = id; return nil }, nil)
+	s := New(&cfg, store, "test", nil, func(id int64) error { called = id; return nil }, nil, nil, nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/jobs/42/retry?tab=done", nil))
 	if w.Code != http.StatusSeeOther || called != 42 {
@@ -317,7 +317,7 @@ func TestProgressAppearsInStatusAndPage(t *testing.T) {
 			OutTime: 30 * time.Second, Duration: 2 * time.Minute, Speed: "2.4x",
 			TotalSize: 100 << 20, Started: now, Updated: now,
 			Steps: []Step{{Label: "preparing", Done: true}, {Label: "encoding"}}}
-	}, nil, nil)
+	}, nil, nil, nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
@@ -351,7 +351,7 @@ func TestBasicAuthRequired(t *testing.T) {
 	cfg.Server.Username = "admin"
 	cfg.Server.Password = "secret"
 	cfg.Libraries = []config.Library{{Name: "Movies", Path: "/media/movies"}}
-	s := New(&cfg, store, "test", nil, nil, nil)
+	s := New(&cfg, store, "test", nil, nil, nil, nil, nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
 	if w.Code != http.StatusUnauthorized {
@@ -397,7 +397,7 @@ func TestTrashReportPageAndAPI(t *testing.T) {
 	cfg := config.Default()
 	cfg.Server.DB = dbPath
 	cfg.Libraries = []config.Library{{Name: "Movies", Path: lib}}
-	s := New(&cfg, store, "test", nil, nil, nil)
+	s := New(&cfg, store, "test", nil, nil, nil, nil, nil)
 
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/trash", nil))
@@ -561,5 +561,52 @@ func TestPauseRedirectsBackToCurrentPage(t *testing.T) {
 	s.ServeHTTP(w, req)
 	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/files?q=test" {
 		t.Fatalf("pause redirect = %d %q", w.Code, w.Header().Get("Location"))
+	}
+}
+
+func TestFilesPageShowsOperatorSkipAndUnskip(t *testing.T) {
+	s := testServer(t)
+	s.cfg.Libraries[0].Write = true
+	path := "/media/movies/Skipped.mkv"
+	if err := s.store.PutFile(queue.File{Path: path, Library: "Movies", Size: 10, Action: "skip", Reason: "skipped by operator"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.store.Suppress(path, queue.OperatorSkipReason, 10, 100); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/files", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	body := w.Body.String()
+	for _, want := range []string{"Status", ">skip<", "Unskip", `action="/api/files/unskip"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("files page missing %q", want)
+		}
+	}
+}
+
+func TestFailedTabHasSkipButton(t *testing.T) {
+	s := testServer(t)
+	path := "/media/movies/Failed.mkv"
+	if _, err := s.store.Enqueue(queue.Job{Path: path, Library: "Movies", Action: "transcode", SizeBefore: 10}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.store.Claim(time.Now())
+	if err != nil || job == nil {
+		t.Fatal(err)
+	}
+	if err := s.store.Fail(job.ID, 3, 3, "failed", 0); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/?tab=failed", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	want := `/api/jobs/` + strconv.FormatInt(job.ID, 10) + `/skip?tab=failed`
+	if !strings.Contains(w.Body.String(), want) {
+		t.Errorf("failed tab missing skip action %q", want)
 	}
 }

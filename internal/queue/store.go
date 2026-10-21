@@ -80,6 +80,7 @@ type FileRow struct {
 	JobState          string
 	EstimatedBytes    int64
 	SavingsUnmeasured bool
+	SuppressedReason  string
 }
 
 type Counts struct {
@@ -330,6 +331,9 @@ const RestoredReason = "restored from trash by operator"
 // RestoreInProgressReason blocks claims while the filesystem swap is running.
 const RestoreInProgressReason = "restore in progress"
 
+// OperatorSkipReason marks a path the operator does not want processed.
+const OperatorSkipReason = "skipped by operator"
+
 // Enqueue returns false when an active job exists, or when the same path and
 // size failed recently. The cooldown keeps a deterministic failure from being
 // re-queued on every scan.
@@ -520,9 +524,11 @@ func (s *Store) Files(q FileQuery) ([]FileRow, int, error) {
 	}
 	listArgs := append(append([]any(nil), args...), q.Limit, q.Offset)
 	rows, err := s.db.Query(`SELECT f.path, f.library, f.size, f.mtime, f.action, f.codes, f.reason, f.codec, f.checked_at,
-		COALESCE(j.id, 0), COALESCE(j.state, ''), COALESCE(j.estimated_bytes, 0), COALESCE(j.savings_unmeasured, 0)
+		COALESCE(j.id, 0), COALESCE(j.state, ''), COALESCE(j.estimated_bytes, 0), COALESCE(j.savings_unmeasured, 0),
+		COALESCE(s.reason, '')
 		FROM files f
-		LEFT JOIN jobs j ON j.path = f.path AND j.state IN ('pending','running')`+where+`
+		LEFT JOIN jobs j ON j.path = f.path AND j.state IN ('pending','running')
+		LEFT JOIN file_suppressions s ON s.path = f.path`+where+`
 		ORDER BY f.size DESC, f.path LIMIT ? OFFSET ?`, listArgs...)
 	if err != nil {
 		return nil, 0, err
@@ -534,7 +540,7 @@ func (s *Store) Files(q FileQuery) ([]FileRow, int, error) {
 		var mtime, checked, unmeasured int64
 		if err := rows.Scan(&row.Path, &row.Library, &row.Size, &mtime, &row.Action, &row.Codes,
 			&row.Reason, &row.Codec, &checked, &row.JobID, &row.JobState,
-			&row.EstimatedBytes, &unmeasured); err != nil {
+			&row.EstimatedBytes, &unmeasured, &row.SuppressedReason); err != nil {
 			return nil, 0, err
 		}
 		row.SavingsUnmeasured = unmeasured != 0
@@ -716,6 +722,62 @@ func (s *Store) Suppress(path, reason string, size, mtime int64) error {
 func (s *Store) ClearSuppression(path string) error {
 	_, err := s.db.Exec(`DELETE FROM file_suppressions WHERE path=?`, path)
 	return err
+}
+
+func (s *Store) SuppressionReason(path string) (string, error) {
+	var reason string
+	err := s.db.QueryRow(`SELECT reason FROM file_suppressions WHERE path=?`, path).Scan(&reason)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return reason, err
+}
+
+// MarkSkipped turns a failed job into an operator skip and suppresses its path.
+func (s *Store) MarkSkipped(jobID int64, path, reason string, size, mtime int64) error {
+	now := time.Now()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(`UPDATE jobs SET state='skipped', size_after=0, backup='', error='',
+		next_attempt_at=0, updated_at=?, finished_at=? WHERE id=? AND state='failed'`,
+		now.Unix(), now.Unix(), jobID)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n != 1 {
+		return fmt.Errorf("job %d is not a failed job", jobID)
+	}
+	if _, err := tx.Exec(`INSERT INTO file_suppressions (path, reason, size, mtime, created_at)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(path) DO UPDATE SET reason=excluded.reason, size=excluded.size,
+			mtime=excluded.mtime, created_at=excluded.created_at`,
+		path, reason, size, mtime, now.Unix()); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE files SET size=?, mtime=?, action='skip', codes='operator_skip',
+		reason=?, checked_at=? WHERE path=?`, size, mtime, reason, now.Unix(), path); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// RequeueSkipped makes the latest skipped job pending again after unskip.
+func (s *Store) RequeueSkipped(path string, now time.Time) (bool, error) {
+	res, err := s.db.Exec(`UPDATE jobs SET state='pending', attempts=0, next_attempt_at=0,
+		error='', updated_at=?, finished_at=0
+		WHERE id = (SELECT id FROM jobs WHERE path=? AND state='skipped' ORDER BY id DESC LIMIT 1)
+		AND NOT EXISTS (SELECT 1 FROM jobs WHERE path=? AND state IN ('pending','running'))`,
+		now.Unix(), path, path)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
 // ClearRestoreInProgress removes markers left by a crash during restore.
