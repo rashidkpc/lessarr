@@ -92,7 +92,10 @@ td.actions form:last-child { margin-right:0; }
 .chart .line { fill:none; stroke:var(--accent); stroke-width:2; vector-effect:non-scaling-stroke; }
 .chart .area { fill:var(--accent-soft); opacity:.8; stroke:none; }
 .chart circle { fill:var(--accent); }
-.chart-axis { display:flex; justify-content:space-between; gap:.5rem; color:var(--muted); font-size:.75rem; margin-top:.4rem; }
+.chart .axis-line { stroke:var(--border); stroke-width:1; vector-effect:non-scaling-stroke; }
+.chart .grid { stroke:var(--border); stroke-width:1; vector-effect:non-scaling-stroke; opacity:.65; }
+.chart .axis-label { fill:var(--muted); font-size:10px; font-family:ui-sans-serif,system-ui,sans-serif; }
+.chart-axis { display:flex; justify-content:center; gap:.5rem; color:var(--muted); font-size:.75rem; margin-top:.4rem; }
 @media (max-width:640px) {
   body { padding:1.25rem .75rem 3rem; }
   .top { flex-wrap:wrap; }
@@ -438,12 +441,16 @@ const metricsHTML = `{{define "metrics"}}{{template "head"}}
 {{range .Charts}}
 <div class="chart">
 <div class="chart-head"><div><div class="label">{{.Title}}</div><div class="muted">{{.Subtitle}}</div></div><div class="value">{{.LastLabel}}</div></div>
-<svg viewBox="0 0 640 180" preserveAspectRatio="none" role="img">
-<path class="area" d="{{.Area}}"/>
-<path class="line" d="{{.Path}}"/>
-<circle cx="{{.LastX}}" cy="{{.LastY}}" r="3"/>
+{{$chart := .}}
+<svg viewBox="0 0 640 180" preserveAspectRatio="xMidYMid meet" role="img">
+<line class="axis-line" x1="{{$chart.AxisLeft}}" y1="{{$chart.AxisTop}}" x2="{{$chart.AxisLeft}}" y2="{{$chart.AxisBottom}}"/>
+<line class="axis-line" x1="{{$chart.AxisLeft}}" y1="{{$chart.AxisBottom}}" x2="{{$chart.AxisRight}}" y2="{{$chart.AxisBottom}}"/>
+{{range $chart.YTicks}}<line class="grid" x1="{{$chart.AxisLeft}}" y1="{{.Y}}" x2="{{$chart.AxisRight}}" y2="{{.Y}}"/><text class="axis-label" x="{{$chart.AxisLabelX}}" y="{{.Y}}" text-anchor="end" dominant-baseline="middle">{{.Label}}</text>{{end}}
+<path class="area" d="{{$chart.Area}}"/>
+<path class="line" d="{{$chart.Path}}"/>
+<circle cx="{{$chart.LastX}}" cy="{{$chart.LastY}}" r="3"/>
 </svg>
-<div class="chart-axis"><span>{{.MinLabel}}</span><span>{{.FirstAt}} → {{.LastAt}}</span><span>{{.MaxLabel}}</span></div>
+<div class="chart-axis"><span>{{.FirstAt}} → {{.LastAt}}</span></div>
 </div>
 {{end}}
 </div>

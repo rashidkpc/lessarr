@@ -23,4 +23,7 @@ func TestBuildChartsUseZeroBaseline(t *testing.T) {
 	if charts[2].MinLabel != "0 B" {
 		t.Errorf("trash axis minimum = %q, want 0 B", charts[2].MinLabel)
 	}
+	if len(charts[0].YTicks) != 5 || charts[0].YTicks[0].Label != "0" || charts[0].YTicks[4].Label != "55" {
+		t.Errorf("queue y ticks = %+v", charts[0].YTicks)
+	}
 }

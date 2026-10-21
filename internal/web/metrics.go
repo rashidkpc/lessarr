@@ -15,19 +15,30 @@ type MetricsPage struct {
 	Charts  []Chart
 }
 
+type YTick struct {
+	Y     string
+	Label string
+}
+
 type Chart struct {
-	Title     string
-	Subtitle  string
-	Path      string
-	Area      string
-	MinLabel  string
-	MaxLabel  string
-	LastLabel string
-	FirstAt   string
-	LastAt    string
-	LastX     string
-	LastY     string
-	HasData   bool
+	Title      string
+	Subtitle   string
+	Path       string
+	Area       string
+	MinLabel   string
+	MaxLabel   string
+	LastLabel  string
+	FirstAt    string
+	LastAt     string
+	LastX      string
+	LastY      string
+	AxisLeft   string
+	AxisRight  string
+	AxisTop    string
+	AxisBottom string
+	AxisLabelX string
+	YTicks     []YTick
+	HasData    bool
 }
 
 func (s *Server) metricsPage(w http.ResponseWriter, r *http.Request) {
@@ -67,7 +78,8 @@ func buildCharts(points []queue.Metric) []Chart {
 }
 
 func buildChart(points []queue.Metric, title, subtitle string, value func(queue.Metric) int64, bytes bool) Chart {
-	const width, height, pad = 640.0, 180.0, 18.0
+	const width, height = 640.0, 180.0
+	const left, right, top, bottom = 64.0, 18.0, 12.0, 20.0
 	chart := Chart{Title: title, Subtitle: subtitle}
 	minT, maxT := points[0].At, points[len(points)-1].At
 	if !maxT.After(minT) {
@@ -92,10 +104,10 @@ func buildChart(points []queue.Metric, title, subtitle string, value func(queue.
 		return fmt.Sprintf("%d", v)
 	}
 	xFor := func(t time.Time) float64 {
-		return pad + (float64(t.Sub(minT))/float64(maxT.Sub(minT)))*(width-2*pad)
+		return left + (float64(t.Sub(minT))/float64(maxT.Sub(minT)))*(width-left-right)
 	}
 	yFor := func(v int64) float64 {
-		return height - pad - (float64(v-minV)/float64(maxV-minV))*(height-2*pad)
+		return height - bottom - (float64(v-minV)/float64(maxV-minV))*(height-top-bottom)
 	}
 
 	var path string
@@ -112,7 +124,7 @@ func buildChart(points []queue.Metric, title, subtitle string, value func(queue.
 	lastX, lastY := xFor(last.At), yFor(value(last))
 	chart.Path = path
 	chart.Area = fmt.Sprintf("M %.1f %.1f L %.1f %.1f L %.1f %.1f L %.1f %.1f Z",
-		firstX, height-pad, firstX, firstY, lastX, lastY, lastX, height-pad)
+		firstX, height-bottom, firstX, firstY, lastX, lastY, lastX, height-bottom)
 	chart.MinLabel = format(minV)
 	chart.MaxLabel = format(maxV)
 	chart.LastLabel = format(value(last))
@@ -120,6 +132,15 @@ func buildChart(points []queue.Metric, title, subtitle string, value func(queue.
 	chart.LastAt = axisTime(last.At)
 	chart.LastX = fmt.Sprintf("%.1f", lastX)
 	chart.LastY = fmt.Sprintf("%.1f", lastY)
+	chart.AxisLeft = fmt.Sprintf("%.1f", left)
+	chart.AxisRight = fmt.Sprintf("%.1f", width-right)
+	chart.AxisTop = fmt.Sprintf("%.1f", top)
+	chart.AxisBottom = fmt.Sprintf("%.1f", height-bottom)
+	chart.AxisLabelX = fmt.Sprintf("%.1f", left-6)
+	for i := 0; i <= 4; i++ {
+		v := maxV * int64(i) / 4
+		chart.YTicks = append(chart.YTicks, YTick{Y: fmt.Sprintf("%.1f", yFor(v)), Label: format(v)})
+	}
 	chart.HasData = true
 	return chart
 }

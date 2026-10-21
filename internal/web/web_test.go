@@ -472,9 +472,42 @@ func TestMetricsPage(t *testing.T) {
 		t.Fatalf("metrics page = %d", w.Code)
 	}
 	body := w.Body.String()
-	for _, want := range []string{"Metrics", "Queue depth", "Failures", "Trash", "Reclaimed", "<svg"} {
+	for _, want := range []string{"Metrics", "Queue depth", "Failures", "Trash", "Reclaimed", "<svg", "axis-label"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("metrics page missing %q", want)
 		}
+	}
+}
+
+func TestRetryHiddenWhileJobIsQueued(t *testing.T) {
+	s := testServer(t)
+	lib := t.TempDir()
+	s.cfg.Libraries = []config.Library{{Name: "Movies", Path: lib, Write: true}}
+	path := filepath.Join(lib, "Movie.mkv")
+	if err := os.WriteFile(path, []byte("media"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.Enqueue(queue.Job{Path: path, Library: "Movies", Action: "transcode", SizeBefore: 5}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.store.Claim(time.Now())
+	if err != nil || job == nil {
+		t.Fatal(err)
+	}
+	if err := s.store.Fail(job.ID, 3, 3, "failed", 0); err != nil {
+		t.Fatal(err)
+	}
+	job, err = s.store.Job(job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.retryable(job) {
+		t.Fatal("retry should be available before the item is queued")
+	}
+	if _, err := s.store.EnqueueRetry(queue.Job{Path: path, Library: "Movies", Action: "transcode", SizeBefore: 5}); err != nil {
+		t.Fatal(err)
+	}
+	if s.retryable(job) {
+		t.Fatal("retry should be unavailable while the item is queued")
 	}
 }
