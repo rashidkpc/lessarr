@@ -128,7 +128,7 @@ td.actions form:last-child { margin-right:0; }
 <body><div class="wrap">
 <div class="top">
   <div class="brand">lessarr <span>v{{.Version}}</span></div>
-  {{template "nav"}}
+  {{template "nav" .}}
 </div>{{end}}
 {{define "nav"}}<nav><a class="{{if eq .Page "dashboard"}}active{{end}}" href="/">Dashboard</a><a class="{{if eq .Page "files"}}active{{end}}" href="/files">Files</a><a class="{{if eq .Page "trash"}}active{{end}}" href="/trash">Trash</a><a class="{{if eq .Page "metrics"}}active{{end}}" href="/metrics">Metrics</a></nav>{{end}}`
 
@@ -245,7 +245,7 @@ const dashboardHTML = `{{define "dashboard"}}
 {{end}}
 {{end}}`
 
-const pageHTML = `{{define "page"}}{{template "head"}}
+const pageHTML = `{{define "page"}}{{template "head" .}}
 <div id="live" data-tab="{{.Tab}}">
 {{template "dashboard" .}}
 </div>
@@ -280,7 +280,7 @@ const pageHTML = `{{define "page"}}{{template "head"}}
 </script>
 </body></html>{{end}}`
 
-const filesHTML = `{{define "files"}}{{template "head"}}
+const filesHTML = `{{define "files"}}{{template "head" .}}
 <style>.wrap { max-width:1500px; }</style>
 <div class="files-head">
 <div class="muted">{{.Total}} matching · {{.Counts.Pending}} queued{{if .HasFilters}} · {{.ActiveFilters}} filter(s){{end}}</div>
@@ -345,7 +345,7 @@ const filesHTML = `{{define "files"}}{{template "head"}}
 </script>
 </body></html>{{end}}`
 
-const jobHTML = `{{define "job"}}{{template "head"}}
+const jobHTML = `{{define "job"}}{{template "head" .}}
 <h1>Job #{{.ID}} <span class="badge {{if eq .StateName "done"}}ok{{else if eq .StateName "failed"}}err{{else if eq .StateName "running"}}warn{{end}}">{{.StateName}}</span>{{if .Restored}} <span class="badge warn">restored</span>{{end}}</h1>
 <div class="muted">
 {{if eq .StateName "pending"}}<a href="/?tab=queued">← Queued</a>{{else if eq .StateName "done"}}<a href="/?tab=done">← Done</a>{{else if eq .StateName "failed"}}<a href="/?tab=failed">← Failed</a>{{else}}<a href="/?tab=running">← Running</a>{{end}}
@@ -414,7 +414,7 @@ const jobHTML = `{{define "job"}}{{template "head"}}
 </div>
 </body></html>{{end}}`
 
-const trashHTML = `{{define "trash"}}{{template "head"}}
+const trashHTML = `{{define "trash"}}{{template "head" .}}
 <div class="toolbar">
 <div class="muted">Retained originals on disk compared with the database</div>
 </div>
@@ -470,7 +470,7 @@ Orphans are preserved, not deleted automatically — after database loss they ma
 </div>
 </body></html>{{end}}`
 
-const metricsHTML = `{{define "metrics"}}{{template "head"}}
+const metricsHTML = `{{define "metrics"}}{{template "head" .}}
 <div class="toolbar">
 <div class="muted">5-minute samples · 30-day retention</div>
 </div>

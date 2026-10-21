@@ -514,3 +514,20 @@ func TestRetryHiddenWhileJobIsQueued(t *testing.T) {
 		t.Fatal("retry should be unavailable while the item is queued")
 	}
 }
+
+func TestNavHighlightsCurrentScreen(t *testing.T) {
+	s := testServer(t)
+	for path, href := range map[string]string{
+		"/": "/", "/files": "/files", "/trash": "/trash", "/metrics": "/metrics",
+	} {
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s = %d", path, w.Code)
+		}
+		want := `class="active" href="` + href + `"`
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("%s missing active nav %q", path, want)
+		}
+	}
+}
