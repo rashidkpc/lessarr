@@ -122,7 +122,6 @@ const compareHTML = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>lessarr comparison</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-body::before{content:"";position:fixed;top:0;left:0;right:0;height:5px;background:linear-gradient(90deg,#d71920 0 33.33%,#f47b20 33.33% 66.66%,#f2c200 66.66% 100%);z-index:10}
 body{font:15px/1.5 ui-sans-serif,system-ui,sans-serif;background:#f6f3ec;color:#1f1f1f;margin:2rem auto;max-width:1200px;padding:0 1rem 3rem}
 a{color:#d71920;text-decoration:none}a:hover{text-decoration:underline}
 h1{font-size:1.35rem;margin:0 0 .3rem}
