@@ -1,6 +1,6 @@
 # lessarr
 
-Single-node media encoding manager. Docker is the supported deployment method.
+Media transcoding manager. Probably not better than your shell script. You probably shouldn't use this. I probably shouldn't use this. Whatever. Vibe up your own nonsense. 
 
 ## Install
 
