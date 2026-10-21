@@ -44,7 +44,7 @@ h2 { font-size:.78rem; text-transform:uppercase; letter-spacing:.07em; color:var
 .tab.active .count { color:var(--muted); }
 .table-wrap { background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; box-shadow:0 1px 2px rgba(15,23,42,.04); }
 table { width:100%; border-collapse:collapse; }
-th, td { text-align:left; padding:.65rem .8rem; border-bottom:1px solid var(--border); vertical-align:top; }
+th, td { text-align:left; padding:.65rem .8rem; border-bottom:1px solid var(--border); vertical-align:middle; }
 th { font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; color:#9a9185; background:#f7f2e9; font-weight:600; }
 tr:last-child td { border-bottom:0; }
 tbody tr:hover td { background:#f7f2e9; }
@@ -60,6 +60,7 @@ button.small { padding:.22rem .55rem; font-size:.8rem; border-radius:6px; }
 input[type=search] { background:#fffdf9; color:var(--text); border:1px solid var(--border); border-radius:8px; padding:.45rem .7rem; min-width:min(360px,100%); }
 code { background:#f1ece2; color:#1f1f1f; border-radius:4px; padding:.08rem .3rem; font-size:.9em; word-break:break-word; }
 .path { word-break:break-all; }
+.nowrap { white-space:nowrap; }
 .chips { margin:.55rem 0; }
 .chip { display:inline-block; padding:.2rem .6rem; border:1px solid var(--border); border-radius:999px; margin:0 .35rem .35rem 0; color:#3f3a33; background:#fffdf9; font-size:.85rem; }
 .chip:hover { text-decoration:none; border-color:#9a9185; }
@@ -150,16 +151,16 @@ const dashboardHTML = `{{define "dashboard"}}
 
 {{else if eq .Tab "queued"}}
 <div class="table-wrap"><table>
-<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th>Size</th><th>Estimate</th><th>Queued</th></tr>
+<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th class="nowrap">Size</th><th class="nowrap">Estimate</th><th class="nowrap">Queued</th></tr>
 {{range .Queued}}
 <tr>
 <td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
 <td class="path"><a href="/jobs/{{.ID}}"><code>{{.Path}}</code></a></td>
 <td>{{.Library}}</td>
 <td><span class="badge">{{.Action}}</span></td>
-<td>{{bytes .SizeBefore}}</td>
-<td>{{if .SavingsUnmeasured}}<span class="muted">unmeasured</span>{{else if gt .EstimatedBytes 0}}~{{bytes .EstimatedBytes}}{{else}}—{{end}}</td>
-<td class="muted">{{when .CreatedAt}}</td>
+<td class="nowrap">{{bytes .SizeBefore}}</td>
+<td class="nowrap">{{if .SavingsUnmeasured}}<span class="muted">unmeasured</span>{{else if gt .EstimatedBytes 0}}~{{bytes .EstimatedBytes}}{{else}}—{{end}}</td>
+<td class="muted nowrap">{{when .CreatedAt}}</td>
 </tr>
 {{else}}
 <tr><td colspan="7" class="muted">Queue is empty.</td></tr>
@@ -169,15 +170,15 @@ const dashboardHTML = `{{define "dashboard"}}
 
 {{else if eq .Tab "done"}}
 <div class="table-wrap"><table>
-<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th>Result</th><th>When</th><th></th></tr>
+<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th class="nowrap">Result</th><th class="nowrap">When</th><th></th></tr>
 {{range .Done}}
 <tr>
 <td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
 <td class="path"><a href="/jobs/{{.ID}}"><code>{{.Path}}</code></a></td>
 <td>{{.Library}}</td>
 <td><span class="badge">{{.Action}}</span></td>
-<td>{{bytes .SizeBefore}}{{if gt .SizeAfter 0}} → {{bytes .SizeAfter}} <span class="muted">({{saved .SizeBefore .SizeAfter}})</span>{{end}}</td>
-<td class="muted">{{when .FinishedAt}}</td>
+<td class="nowrap">{{bytes .SizeBefore}}{{if gt .SizeAfter 0}} → {{bytes .SizeAfter}} <span class="muted">({{saved .SizeBefore .SizeAfter}})</span>{{end}}</td>
+<td class="muted nowrap">{{when .FinishedAt}}</td>
 <td>{{if .Retryable}}<form method="post" action="/api/jobs/{{.ID}}/retry" onsubmit="return confirm('Restore the original and re-transcode with current settings?')"><button class="secondary small" type="submit">Retry</button></form>{{end}}</td>
 </tr>
 {{else}}
