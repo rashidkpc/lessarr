@@ -255,6 +255,47 @@ func Prune(ctx context.Context, store Store, cfg config.Trash, now time.Time) (S
 	return stats, nil
 }
 
+// DeleteOrphan removes one reviewed orphan file. It re-checks that the path is
+// still an orphan and is not a symlink at the moment of deletion.
+func DeleteOrphan(store Store, libraries []config.Library, path string) error {
+	clean := filepath.Clean(path)
+	report, err := BuildReport(store, libraries)
+	if err != nil {
+		return err
+	}
+	found := false
+	for _, orphan := range report.OrphanFiles {
+		if filepath.Clean(orphan.Path) == clean {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("%s is not an orphan in a configured trash directory", clean)
+	}
+	jobs, err := store.Backups()
+	if err != nil {
+		return err
+	}
+	for _, job := range jobs {
+		if filepath.Clean(job.Backup) == clean {
+			return fmt.Errorf("%s is still referenced by job %d", clean, job.ID)
+		}
+	}
+	fi, err := os.Lstat(clean)
+	if err != nil {
+		return err
+	}
+	if !fi.Mode().IsRegular() || fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s is not a regular file", clean)
+	}
+	if err := os.Remove(clean); err != nil {
+		return err
+	}
+	_ = os.Remove(filepath.Dir(clean))
+	return nil
+}
+
 func backupTime(job queue.Job) time.Time {
 	if !job.FinishedAt.IsZero() {
 		return job.FinishedAt

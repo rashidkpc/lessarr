@@ -58,3 +58,13 @@ func TestCleanupStaleTemps(t *testing.T) {
 		t.Error("trash content was removed")
 	}
 }
+
+func TestCheckLibraries(t *testing.T) {
+	dir := t.TempDir()
+	if err := checkLibraries([]config.Library{{Name: "Movies", Path: dir}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkLibraries([]config.Library{{Name: "Missing", Path: filepath.Join(dir, "nope")}}); err == nil {
+		t.Fatal("missing library should fail the mount check")
+	}
+}

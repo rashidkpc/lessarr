@@ -64,7 +64,7 @@ func New(cfg *config.Config, store *queue.Store, version string, progress func()
 			"saved":  savedPercent,
 			"dur":    humanDuration,
 			"sbytes": signedBytes,
-		}).Parse(sharedHTML + dashboardHTML + pageHTML + filesHTML + jobHTML + trashHTML)),
+		}).Parse(sharedHTML + dashboardHTML + pageHTML + filesHTML + jobHTML + trashHTML + metricsHTML)),
 	}
 }
 
@@ -94,8 +94,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.filesPage(w, r)
 	case r.URL.Path == "/trash" && r.Method == http.MethodGet:
 		s.trashPage(w, r)
+	case r.URL.Path == "/metrics" && r.Method == http.MethodGet:
+		s.metricsPage(w, r)
 	case r.URL.Path == "/api/trash":
 		s.trashJSON(w)
+	case r.URL.Path == "/api/trash/delete" && r.Method == http.MethodPost:
+		s.deleteOrphan(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/jobs/") && strings.HasSuffix(r.URL.Path, "/retry") && r.Method == http.MethodPost:
 		s.retryJob(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/jobs/") && strings.HasSuffix(r.URL.Path, "/restore") && r.Method == http.MethodPost:
@@ -162,6 +166,19 @@ func (s *Server) trashJSON(w http.ResponseWriter) {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	_ = enc.Encode(report)
+}
+
+func (s *Server) deleteOrphan(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimSpace(r.FormValue("path"))
+	if path == "" {
+		http.Error(w, "path is required", http.StatusBadRequest)
+		return
+	}
+	if err := trash.DeleteOrphan(s.store, s.cfg.Libraries, path); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	http.Redirect(w, r, "/trash", http.StatusSeeOther)
 }
 
 func (s *Server) trashPage(w http.ResponseWriter, r *http.Request) {

@@ -30,12 +30,15 @@ import (
 )
 
 const (
-	maxAttempts  = 3
-	retryDelay   = 10 * time.Minute
-	rescanAfter  = 6 * time.Hour
-	workerPoll   = 2 * time.Second
-	scanProgress = 100
-	scanInterval = 5 * time.Minute
+	maxAttempts      = 3
+	retryDelay       = 10 * time.Minute
+	rescanAfter      = 6 * time.Hour
+	workerPoll       = 2 * time.Second
+	scanProgress     = 100
+	scanInterval     = 5 * time.Minute
+	mountInterval    = time.Minute
+	metricsInterval  = 5 * time.Minute
+	metricsRetention = 30 * 24 * time.Hour
 )
 
 type Options struct {
@@ -50,19 +53,22 @@ type Options struct {
 }
 
 type Daemon struct {
-	cfg        *config.Config
-	store      *queue.Store
-	runner     ffmpeg.Runner
-	prober     probe.Prober
-	backend    ffmpeg.Backend
-	hwDecode   map[string]bool
-	writable   []string
-	log        io.Writer
-	policy     decision.Policy
-	progressMu sync.Mutex
-	progress   web.Progress
-	compareCh  chan int64
-	trashMu    sync.Mutex
+	cfg         *config.Config
+	store       *queue.Store
+	runner      ffmpeg.Runner
+	prober      probe.Prober
+	backend     ffmpeg.Backend
+	hwDecode    map[string]bool
+	writable    []string
+	log         io.Writer
+	policy      decision.Policy
+	progressMu  sync.Mutex
+	progress    web.Progress
+	compareCh   chan int64
+	trashMu     sync.Mutex
+	mountMu     sync.Mutex
+	mountDown   bool
+	mountPaused bool
 }
 
 // Run blocks until ctx is cancelled. With Once set it performs a single scan
@@ -109,8 +115,12 @@ func Run(ctx context.Context, o Options) error {
 		return d.sweep(ctx, true)
 	}
 
+	d.checkMounts()
 	if err := d.store.ResetInterrupted(); err != nil {
 		return fmt.Errorf("recover interrupted jobs: %w", err)
+	}
+	if err := d.store.ClearRestoreInProgress(); err != nil {
+		return fmt.Errorf("clear stale restore markers: %w", err)
 	}
 	selection, err := ffmpeg.Select(ctx, d.cfg.Encoder.Backend, d.cfg.Encoder.Device, "", d.runner)
 	if err != nil {
@@ -162,6 +172,16 @@ func Run(ctx context.Context, o Options) error {
 	go func() {
 		defer wg.Done()
 		d.trashLoop(ctx)
+	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		d.watchLoop(ctx)
+	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		d.metricsLoop(ctx)
 	}()
 
 	<-ctx.Done()
@@ -223,8 +243,8 @@ func (d *Daemon) sweep(ctx context.Context, force bool) error {
 				// Sonarr/nzbget may still be moving or renaming this file.
 				continue
 			}
-			if suppressed, err := d.store.Suppressed(path); err == nil && suppressed {
-				// Operator restored the original and opted out of processing.
+			if suppressed, err := d.store.Suppressed(path, fi.Size(), fi.ModTime().Unix()); err == nil && suppressed {
+				// Operator restored the original and opted out of this generation.
 				continue
 			}
 			if !force {
@@ -417,13 +437,6 @@ func (d *Daemon) Restore(jobID int64) error {
 	if filepath.Base(filepath.Dir(backup)) != ".lessarr-trash" {
 		return fmt.Errorf("refusing to restore non-trash path")
 	}
-	active, err := d.store.ActiveJob(job.Path)
-	if err != nil {
-		return err
-	}
-	if active != nil {
-		return fmt.Errorf("file has an active job; wait for it to finish before restoring")
-	}
 	fi, err := os.Lstat(backup)
 	if err != nil {
 		return fmt.Errorf("original is unavailable: %w", err)
@@ -431,10 +444,27 @@ func (d *Daemon) Restore(jobID int64) error {
 	if !fi.Mode().IsRegular() || fi.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("original is not a regular file")
 	}
-	if err := swap.Restore(job.Path, backup); err != nil {
+	size, mtime := fi.Size(), fi.ModTime().Unix()
+	// Suppress before touching the filesystem so a concurrent scan cannot
+	// enqueue the path, and Claim refuses suppressed paths. Recheck for a job
+	// that was claimed just before the marker landed.
+	if err := d.store.Suppress(job.Path, queue.RestoreInProgressReason, size, mtime); err != nil {
 		return err
 	}
-	if err := d.store.MarkRestored(job.ID, job.Path, queue.RestoredReason); err != nil {
+	active, err := d.store.ActiveJob(job.Path)
+	if err != nil {
+		_ = d.store.ClearSuppression(job.Path)
+		return err
+	}
+	if active != nil {
+		_ = d.store.ClearSuppression(job.Path)
+		return fmt.Errorf("file has an active job; wait for it to finish before restoring")
+	}
+	if err := swap.Restore(job.Path, backup); err != nil {
+		_ = d.store.ClearSuppression(job.Path)
+		return err
+	}
+	if err := d.store.MarkRestored(job.ID, job.Path, queue.RestoredReason, size, mtime); err != nil {
 		return fmt.Errorf("original restored, but recording the undo failed: %w", err)
 	}
 	_ = os.RemoveAll(filepath.Join(compare.Dir(d.cfg.Server.DB), fmt.Sprintf("%d", job.ID)))
@@ -560,11 +590,116 @@ func (d *Daemon) trashLoop(ctx context.Context) {
 	}
 }
 
-func (d *Daemon) notifyFailure(job *queue.Job, message string, permanent bool) {
-	if d.cfg.Server.WebhookURL == "" {
+func (d *Daemon) metricsLoop(ctx context.Context) {
+	d.recordMetrics()
+	ticker := time.NewTicker(metricsInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			d.recordMetrics()
+		}
+	}
+}
+
+func (d *Daemon) recordMetrics() {
+	counts, err := d.store.Counts()
+	if err != nil {
+		fmt.Fprintf(d.log, "metrics: counts: %v\n", err)
 		return
 	}
-	body, err := json.Marshal(map[string]any{
+	trashStats, err := trash.Summary(d.store)
+	if err != nil {
+		fmt.Fprintf(d.log, "metrics: trash: %v\n", err)
+		return
+	}
+	saved, _, err := d.store.SavedSince(time.Time{})
+	if err != nil {
+		fmt.Fprintf(d.log, "metrics: savings: %v\n", err)
+		return
+	}
+	now := time.Now()
+	if err := d.store.RecordMetric(queue.Metric{
+		At: now, Pending: counts.Pending, Running: counts.Running, Failed: counts.Failed,
+		TrashFiles: trashStats.Files, TrashBytes: trashStats.Bytes, SavedBytes: saved,
+	}); err != nil {
+		fmt.Fprintf(d.log, "metrics: record: %v\n", err)
+		return
+	}
+	_ = d.store.PruneMetrics(now.Add(-metricsRetention))
+}
+
+func (d *Daemon) watchLoop(ctx context.Context) {
+	ticker := time.NewTicker(mountInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			d.checkMounts()
+		}
+	}
+}
+
+// checkMounts pauses claiming when a library becomes unreadable. It resumes
+// only a pause that it created itself, and reports transitions via the webhook.
+func (d *Daemon) checkMounts() {
+	err := checkLibraries(d.cfg.Libraries)
+	d.mountMu.Lock()
+	defer d.mountMu.Unlock()
+	if err != nil {
+		if d.mountDown {
+			return
+		}
+		d.mountDown = true
+		fmt.Fprintf(d.log, "mount check failed: %v; pausing queue\n", err)
+		paused, perr := d.store.Paused()
+		if perr == nil && !paused {
+			if err := d.store.SetPaused(true); err == nil {
+				d.mountPaused = true
+			}
+		}
+		d.notifyEvent(map[string]any{
+			"event": "mount_failed", "error": err.Error(),
+			"time": time.Now().UTC().Format(time.RFC3339),
+		})
+		return
+	}
+	if !d.mountDown {
+		return
+	}
+	d.mountDown = false
+	fmt.Fprintf(d.log, "mount check recovered\n")
+	if d.mountPaused {
+		if err := d.store.SetPaused(false); err == nil {
+			d.mountPaused = false
+		}
+	}
+	d.notifyEvent(map[string]any{
+		"event": "mount_recovered", "time": time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func checkLibraries(libs []config.Library) error {
+	for _, lib := range libs {
+		f, err := os.Open(lib.Path)
+		if err != nil {
+			return fmt.Errorf("%s: %w", lib.Name, err)
+		}
+		_, readErr := f.Readdirnames(1)
+		_ = f.Close()
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			return fmt.Errorf("%s: %w", lib.Name, readErr)
+		}
+	}
+	return nil
+}
+
+func (d *Daemon) notifyFailure(job *queue.Job, message string, permanent bool) {
+	d.notifyEvent(map[string]any{
 		"event":     "job_failed",
 		"permanent": permanent,
 		"id":        job.ID,
@@ -575,27 +710,35 @@ func (d *Daemon) notifyFailure(job *queue.Job, message string, permanent bool) {
 		"error":     message,
 		"time":      time.Now().UTC().Format(time.RFC3339),
 	})
+}
+
+func (d *Daemon) notifyEvent(payload map[string]any) {
+	if d.cfg.Server.WebhookURL == "" {
+		return
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
-		fmt.Fprintf(d.log, "webhook %d: %v\n", job.ID, err)
+		fmt.Fprintf(d.log, "webhook: %v\n", err)
 		return
 	}
 	url := d.cfg.Server.WebhookURL
+	label, _ := payload["event"].(string)
 	go func() {
 		req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 		if err != nil {
-			fmt.Fprintf(d.log, "webhook %d: %v\n", job.ID, err)
+			fmt.Fprintf(d.log, "webhook %s: %v\n", label, err)
 			return
 		}
 		req.Header.Set("Content-Type", "application/json")
 		client := &http.Client{Timeout: 5 * time.Second}
 		resp, err := client.Do(req)
 		if err != nil {
-			fmt.Fprintf(d.log, "webhook %d: %v\n", job.ID, err)
+			fmt.Fprintf(d.log, "webhook %s: %v\n", label, err)
 			return
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			fmt.Fprintf(d.log, "webhook %d: status %s\n", job.ID, resp.Status)
+			fmt.Fprintf(d.log, "webhook %s: status %s\n", label, resp.Status)
 		}
 	}()
 }

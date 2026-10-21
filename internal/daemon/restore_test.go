@@ -66,7 +66,11 @@ func TestRestorePutsOriginalBackAndSuppresses(t *testing.T) {
 	if restored.State != queue.Failed || !restored.Restored {
 		t.Fatalf("job = %+v", restored)
 	}
-	if suppressed, err := store.Suppressed(source); err != nil || !suppressed {
+	fi, err := os.Stat(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if suppressed, err := store.Suppressed(source, fi.Size(), fi.ModTime().Unix()); err != nil || !suppressed {
 		t.Fatalf("suppression = %v, %v", suppressed, err)
 	}
 }

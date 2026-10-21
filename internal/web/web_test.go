@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -415,6 +416,15 @@ func TestTrashReportPageAndAPI(t *testing.T) {
 	if len(report.OrphanFiles) != 1 || report.OrphanFiles[0].Path != orphan {
 		t.Fatalf("api orphans = %+v", report.OrphanFiles)
 	}
+
+	w = httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/trash/delete?path="+url.QueryEscape(orphan), nil))
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("delete orphan = %d: %s", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
+		t.Error("orphan was not deleted")
+	}
 }
 
 func TestRestoreEndpointAndBadge(t *testing.T) {
@@ -442,5 +452,26 @@ func TestRestoreEndpointAndBadge(t *testing.T) {
 	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/jobs/"+strconv.FormatInt(job.ID, 10), nil))
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "restored") {
 		t.Fatalf("restored badge missing: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestMetricsPage(t *testing.T) {
+	s := testServer(t)
+	now := time.Now()
+	for i := 0; i < 3; i++ {
+		if err := s.store.RecordMetric(queue.Metric{At: now.Add(time.Duration(i) * time.Minute), Pending: i, Failed: 1, TrashBytes: 100, SavedBytes: 200}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("metrics page = %d", w.Code)
+	}
+	body := w.Body.String()
+	for _, want := range []string{"Metrics", "Queue depth", "Failures", "Trash", "Reclaimed", "<svg"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("metrics page missing %q", want)
+		}
 	}
 }

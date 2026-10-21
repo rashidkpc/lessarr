@@ -422,7 +422,7 @@ func TestSuppressionBlocksEnqueueAndRetryClears(t *testing.T) {
 	if err := s.Complete(job.ID, Done, 50, "/media/movies/.lessarr-trash/1-restored.mkv"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.MarkRestored(job.ID, path, RestoredReason); err != nil {
+	if err := s.MarkRestored(job.ID, path, RestoredReason, 100, 1000); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.Job(job.ID)
@@ -432,7 +432,7 @@ func TestSuppressionBlocksEnqueueAndRetryClears(t *testing.T) {
 	if got.State != Failed || !got.Restored || got.Backup != "" {
 		t.Fatalf("restored job = %+v", got)
 	}
-	if suppressed, err := s.Suppressed(path); err != nil || !suppressed {
+	if suppressed, err := s.Suppressed(path, 100, 1000); err != nil || !suppressed {
 		t.Fatalf("suppressed = %v, %v", suppressed, err)
 	}
 	added, err := s.Enqueue(Job{Path: path, Library: "Movies", Action: "transcode", SizeBefore: 100})
@@ -449,7 +449,69 @@ func TestSuppressionBlocksEnqueueAndRetryClears(t *testing.T) {
 	if !added {
 		t.Fatal("explicit retry did not enqueue")
 	}
-	if suppressed, err := s.Suppressed(path); err != nil || suppressed {
+	if suppressed, err := s.Suppressed(path, 100, 1000); err != nil || suppressed {
 		t.Fatalf("suppression survived retry: %v, %v", suppressed, err)
+	}
+}
+
+func TestSuppressionExpiresWhenFileChanges(t *testing.T) {
+	s := openTest(t)
+	path := "/media/movies/replaced.mkv"
+	if err := s.Suppress(path, RestoredReason, 100, 1000); err != nil {
+		t.Fatal(err)
+	}
+	if suppressed, err := s.Suppressed(path, 100, 1000); err != nil || !suppressed {
+		t.Fatalf("same generation suppressed = %v, %v", suppressed, err)
+	}
+	if suppressed, err := s.Suppressed(path, 101, 1000); err != nil || suppressed {
+		t.Fatalf("new generation suppressed = %v, %v", suppressed, err)
+	}
+	if suppressed, err := s.Suppressed(path, 100, 1000); err != nil || suppressed {
+		t.Fatalf("expired suppression returned = %v, %v", suppressed, err)
+	}
+}
+
+func TestSuppressionBlocksClaim(t *testing.T) {
+	s := openTest(t)
+	path := "/media/movies/claimed.mkv"
+	if _, err := s.Enqueue(Job{Path: path, Library: "Movies", Action: "transcode", SizeBefore: 100}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Suppress(path, RestoreInProgressReason, 100, 1000); err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.Claim(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job != nil {
+		t.Fatalf("claimed suppressed job %d", job.ID)
+	}
+}
+
+func TestMetricsRoundTripAndPrune(t *testing.T) {
+	s := openTest(t)
+	now := time.Now()
+	for i := 0; i < 3; i++ {
+		if err := s.RecordMetric(Metric{At: now.Add(time.Duration(i) * time.Minute), Pending: i, TrashBytes: int64(i * 10)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	points, err := s.MetricsSince(now.Add(-time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(points) != 3 || points[2].Pending != 2 {
+		t.Fatalf("points = %+v", points)
+	}
+	if err := s.PruneMetrics(now.Add(90 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	points, err = s.MetricsSince(time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(points) != 1 {
+		t.Fatalf("after prune = %d points", len(points))
 	}
 }

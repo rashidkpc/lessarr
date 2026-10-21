@@ -96,6 +96,17 @@ type Summary struct {
 	Bytes   int64
 }
 
+// Metric is one periodic queue/trash snapshot.
+type Metric struct {
+	At         time.Time
+	Pending    int
+	Running    int
+	Failed     int
+	TrashFiles int
+	TrashBytes int64
+	SavedBytes int64
+}
+
 type Store struct {
 	db *sql.DB
 }
@@ -216,7 +227,18 @@ func (s *Store) migrate() error {
 		`CREATE TABLE IF NOT EXISTS file_suppressions (
 			path TEXT PRIMARY KEY,
 			reason TEXT NOT NULL,
+			size INTEGER NOT NULL DEFAULT 0,
+			mtime INTEGER NOT NULL DEFAULT 0,
 			created_at INTEGER NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS metrics (
+			at INTEGER PRIMARY KEY,
+			pending INTEGER NOT NULL,
+			running INTEGER NOT NULL,
+			failed INTEGER NOT NULL,
+			trash_files INTEGER NOT NULL,
+			trash_bytes INTEGER NOT NULL,
+			saved_bytes INTEGER NOT NULL
 		)`,
 	}
 	for _, stmt := range stmts {
@@ -228,6 +250,12 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := s.ensureColumn("jobs", "savings_unmeasured", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("file_suppressions", "size", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn("file_suppressions", "mtime", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
 	return nil
@@ -296,6 +324,9 @@ const failureCooldown = 24 * time.Hour
 // RestoredReason marks an operator undo. Jobs remain in the failed tab so the
 // history is explicit, but they are not retried automatically.
 const RestoredReason = "restored from trash by operator"
+
+// RestoreInProgressReason blocks claims while the filesystem swap is running.
+const RestoreInProgressReason = "restore in progress"
 
 // Enqueue returns false when an active job exists, or when the same path and
 // size failed recently. The cooldown keeps a deterministic failure from being
@@ -368,6 +399,7 @@ func (s *Store) Claim(now time.Time, writable ...string) (*Job, error) {
 			args = append(args, name)
 		}
 	}
+	query += ` AND NOT EXISTS (SELECT 1 FROM file_suppressions WHERE path = jobs.path)`
 	query += ` ORDER BY id LIMIT 1`
 
 	var j Job
@@ -614,10 +646,42 @@ func (s *Store) ClearBackup(jobID int64) error {
 	return err
 }
 
-func (s *Store) Suppressed(path string) (bool, error) {
-	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM file_suppressions WHERE path=?`, path).Scan(&n)
-	return n > 0, err
+// Suppressed reports whether this exact file generation is opted out. A file
+// replaced at the same path gets processed again.
+func (s *Store) Suppressed(path string, size, mtime int64) (bool, error) {
+	var reason string
+	var savedSize, savedMTime int64
+	err := s.db.QueryRow(`SELECT reason, size, mtime FROM file_suppressions WHERE path=?`, path).
+		Scan(&reason, &savedSize, &savedMTime)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if reason == RestoreInProgressReason {
+		return true, nil
+	}
+	// Rows created before generation tracking are adopted once.
+	if savedSize == 0 && savedMTime == 0 {
+		_, err := s.db.Exec(`UPDATE file_suppressions SET size=?, mtime=? WHERE path=?`, size, mtime, path)
+		return true, err
+	}
+	if savedSize == size && savedMTime == mtime {
+		return true, nil
+	}
+	_, err = s.db.Exec(`DELETE FROM file_suppressions WHERE path=?`, path)
+	return false, err
+}
+
+// Suppress records a manual opt-out for one file generation.
+func (s *Store) Suppress(path, reason string, size, mtime int64) error {
+	_, err := s.db.Exec(`INSERT INTO file_suppressions (path, reason, size, mtime, created_at)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(path) DO UPDATE SET reason=excluded.reason, size=excluded.size,
+			mtime=excluded.mtime, created_at=excluded.created_at`,
+		path, reason, size, mtime, time.Now().Unix())
+	return err
 }
 
 func (s *Store) ClearSuppression(path string) error {
@@ -625,9 +689,15 @@ func (s *Store) ClearSuppression(path string) error {
 	return err
 }
 
+// ClearRestoreInProgress removes markers left by a crash during restore.
+func (s *Store) ClearRestoreInProgress() error {
+	_, err := s.db.Exec(`DELETE FROM file_suppressions WHERE reason=?`, RestoreInProgressReason)
+	return err
+}
+
 // MarkRestored records an operator undo: the job is terminal, the retained
 // original is gone, and scans must not queue this path again until retry.
-func (s *Store) MarkRestored(jobID int64, path, reason string) error {
+func (s *Store) MarkRestored(jobID int64, path, reason string, size, mtime int64) error {
 	now := time.Now()
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -648,16 +718,18 @@ func (s *Store) MarkRestored(jobID int64, path, reason string) error {
 	if _, err := tx.Exec(`DELETE FROM jobs WHERE path=? AND state='pending'`, path); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`INSERT INTO file_suppressions (path, reason, created_at) VALUES (?, ?, ?)
-		ON CONFLICT(path) DO UPDATE SET reason=excluded.reason, created_at=excluded.created_at`,
-		path, reason, now.Unix()); err != nil {
+	if _, err := tx.Exec(`INSERT INTO file_suppressions (path, reason, size, mtime, created_at)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(path) DO UPDATE SET reason=excluded.reason, size=excluded.size,
+			mtime=excluded.mtime, created_at=excluded.created_at`,
+		path, reason, size, mtime, now.Unix()); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM job_analysis WHERE job_id=?`, jobID); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`UPDATE files SET action='skip', codes='restored', reason=?, checked_at=?
-		WHERE path=?`, reason, now.Unix(), path); err != nil {
+	if _, err := tx.Exec(`UPDATE files SET size=?, mtime=?, action='skip', codes='restored',
+		reason=?, checked_at=? WHERE path=?`, size, mtime, reason, now.Unix(), path); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -822,6 +894,41 @@ func (s *Store) Analysis(jobID int64) (string, error) {
 		return "", nil
 	}
 	return data, err
+}
+
+func (s *Store) RecordMetric(m Metric) error {
+	_, err := s.db.Exec(`INSERT INTO metrics (at, pending, running, failed, trash_files, trash_bytes, saved_bytes)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(at) DO UPDATE SET pending=excluded.pending, running=excluded.running,
+			failed=excluded.failed, trash_files=excluded.trash_files,
+			trash_bytes=excluded.trash_bytes, saved_bytes=excluded.saved_bytes`,
+		m.At.Unix(), m.Pending, m.Running, m.Failed, m.TrashFiles, m.TrashBytes, m.SavedBytes)
+	return err
+}
+
+func (s *Store) MetricsSince(since time.Time) ([]Metric, error) {
+	rows, err := s.db.Query(`SELECT at, pending, running, failed, trash_files, trash_bytes, saved_bytes
+		FROM metrics WHERE at >= ? ORDER BY at`, since.Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Metric
+	for rows.Next() {
+		var at int64
+		var m Metric
+		if err := rows.Scan(&at, &m.Pending, &m.Running, &m.Failed, &m.TrashFiles, &m.TrashBytes, &m.SavedBytes); err != nil {
+			return nil, err
+		}
+		m.At = time.Unix(at, 0)
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) PruneMetrics(before time.Time) error {
+	_, err := s.db.Exec(`DELETE FROM metrics WHERE at < ?`, before.Unix())
+	return err
 }
 
 func (s *Store) Paused() (bool, error) {

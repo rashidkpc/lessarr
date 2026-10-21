@@ -145,13 +145,24 @@ its retries or fails permanently.
 
 The **Trash** page (`/trash`, JSON at `/api/trash`) scans configured libraries for
 `.lessarr-trash` files that no completed job references, and reports database
-backups whose files are missing. Orphans are preserved rather than deleted: after
-database loss they may be the only recoverable copy.
+backups whose files are missing. Orphans are preserved by default: after database
+loss they may be the only recoverable copy. Each orphan has a confirmed **Delete**
+action after review.
 
 Completed jobs with a retained original show a **Restore** button. It atomically
 puts the original back, discards the transcoded output, marks the job failed with
-a `restored` badge, and suppresses automatic processing for that path. **Retry**
-clears the suppression if you want lessarr to process the file again.
+a `restored` badge, and suppresses automatic processing for that file generation.
+If the file is replaced at the same path, the suppression expires automatically
+and it is eligible again. **Retry** clears the suppression immediately.
+
+The **Metrics** page (`/metrics`) charts queue depth, failures, trash size, and
+total reclaimed bytes. Samples are stored in SQLite every five minutes and pruned
+after 30 days; no external metrics service or JavaScript dependency is required.
+
+A one-minute mount watchdog opens each library. If a mount becomes unreadable it
+pauses new claims and sends a `mount_failed` webhook; recovery resumes only a
+pause created by the watchdog. `lessarr version` reports the embedded git
+revision when built from a checkout.
 
 `selftest` is the first thing to run on a new machine. It does not assume the
 hardware works — it loads the driver, runs a short synthetic encode through each

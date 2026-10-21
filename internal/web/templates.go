@@ -83,6 +83,16 @@ td.actions form:last-child { margin-right:0; }
 .step.current { background:var(--accent-soft); color:#7a4a00; }
 .step.pending { background:#fffdf9; color:#9a9185; }
 .toolbar { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; margin-bottom:.4rem; }
+.charts { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:1rem; margin-top:1rem; }
+.chart { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+.chart-head { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; }
+.chart .label { font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; color:#9a9185; font-weight:600; }
+.chart .value { font-size:1.25rem; font-weight:700; white-space:nowrap; }
+.chart svg { display:block; width:100%; height:180px; margin-top:.8rem; overflow:visible; }
+.chart .line { fill:none; stroke:var(--accent); stroke-width:2; vector-effect:non-scaling-stroke; }
+.chart .area { fill:var(--accent-soft); opacity:.8; stroke:none; }
+.chart circle { fill:var(--accent); }
+.chart-axis { display:flex; justify-content:space-between; gap:.5rem; color:var(--muted); font-size:.75rem; margin-top:.4rem; }
 @media (max-width:640px) {
   body { padding:1.25rem .75rem 3rem; }
   .top { flex-wrap:wrap; }
@@ -96,7 +106,7 @@ td.actions form:last-child { margin-right:0; }
   <div class="brand">lessarr <span>v{{.Version}}</span></div>
   {{template "nav"}}
 </div>{{end}}
-{{define "nav"}}<nav><a href="/">Dashboard</a><a href="/files">Files</a><a href="/trash">Trash</a></nav>{{end}}`
+{{define "nav"}}<nav><a href="/">Dashboard</a><a href="/files">Files</a><a href="/trash">Trash</a><a href="/metrics">Metrics</a></nav>{{end}}`
 
 const dashboardHTML = `{{define "dashboard"}}
 <div class="toolbar">
@@ -384,9 +394,14 @@ Orphans are preserved, not deleted automatically — after database loss they ma
 {{if .Report.OrphanFiles}}
 <p class="muted">Files in a <code>.lessarr-trash</code> directory that no completed job references.</p>
 <div class="table-wrap"><table>
-<tr><th class="nowrap">Size</th><th>File</th><th class="nowrap">Modified</th></tr>
+<tr><th class="nowrap">Size</th><th>File</th><th class="nowrap">Modified</th><th></th></tr>
 {{range .Report.OrphanFiles}}
-<tr><td class="nowrap">{{bytes .Size}}</td><td class="path"><code>{{.Path}}</code></td><td class="muted nowrap">{{when .ModTime}}</td></tr>
+<tr><td class="nowrap">{{bytes .Size}}</td><td class="path"><code>{{.Path}}</code></td><td class="muted nowrap">{{when .ModTime}}</td><td class="actions">
+<form method="post" action="/api/trash/delete" onsubmit="return confirm('Delete this orphan permanently? This cannot be undone.')">
+<input type="hidden" name="path" value="{{.Path}}">
+<button class="secondary small" type="submit">Delete</button>
+</form>
+</td></tr>
 {{end}}
 </table></div>
 {{else}}
@@ -410,6 +425,30 @@ Orphans are preserved, not deleted automatically — after database loss they ma
 <div class="panel notice">
 {{range .Report.Errors}}<div class="path"><code>{{.}}</code></div>{{end}}
 </div>
+{{end}}
+</div>
+</body></html>{{end}}`
+
+const metricsHTML = `{{define "metrics"}}{{template "head"}}
+<div class="toolbar">
+<div><h1>Metrics</h1><div class="muted">5-minute samples · 30-day retention</div></div>
+</div>
+{{if .Charts}}
+<div class="charts">
+{{range .Charts}}
+<div class="chart">
+<div class="chart-head"><div><div class="label">{{.Title}}</div><div class="muted">{{.Subtitle}}</div></div><div class="value">{{.LastLabel}}</div></div>
+<svg viewBox="0 0 640 180" preserveAspectRatio="none" role="img">
+<path class="area" d="{{.Area}}"/>
+<path class="line" d="{{.Path}}"/>
+<circle cx="{{.LastX}}" cy="{{.LastY}}" r="3"/>
+</svg>
+<div class="chart-axis"><span>{{.MinLabel}}</span><span>{{.FirstAt}} → {{.LastAt}}</span><span>{{.MaxLabel}}</span></div>
+</div>
+{{end}}
+</div>
+{{else}}
+<div class="panel muted">No samples yet. The first sample is written when the daemon starts.</div>
 {{end}}
 </div>
 </body></html>{{end}}`

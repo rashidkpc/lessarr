@@ -155,3 +155,19 @@ func TestBuildReportFindsOrphansAndMissing(t *testing.T) {
 		t.Fatalf("missing = %+v", report.Missing)
 	}
 }
+
+func TestDeleteOrphanRefusesTrackedAndRemovesOrphan(t *testing.T) {
+	lib := t.TempDir()
+	tracked := backupFile(t, lib, "tracked.mkv", 10)
+	orphan := backupFile(t, lib, "orphan.mkv", 20)
+	store := &fakeStore{jobs: []queue.Job{{ID: 1, Path: "/media/tracked.mkv", Backup: tracked}}}
+	if err := DeleteOrphan(store, []config.Library{{Name: "Movies", Path: lib}}, tracked); err == nil {
+		t.Fatal("deleted a tracked backup")
+	}
+	if err := DeleteOrphan(store, []config.Library{{Name: "Movies", Path: lib}}, orphan); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
+		t.Error("orphan still exists")
+	}
+}
