@@ -42,7 +42,8 @@ path  = "/media/Movies"
 write = false
 ```
 
-Set `write = true` only for libraries lessarr is allowed to modify.
+Set `write = true` only for libraries lessarr is allowed to modify. Full option
+reference: [CONFIG.md](CONFIG.md).
 
 ## Update
 
