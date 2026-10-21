@@ -132,6 +132,7 @@ func (s *Server) prepareStatus(r *http.Request) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
+	status.Page = "dashboard"
 	status.Tab = r.URL.Query().Get("tab")
 	switch status.Tab {
 	case "running", "queued", "done", "failed":
@@ -149,6 +150,7 @@ func (s *Server) prepareStatus(r *http.Request) (Status, error) {
 
 type TrashPage struct {
 	Version    string
+	Page       string
 	Report     trash.Report
 	TrashLimit int64
 	Retention  string
@@ -190,7 +192,7 @@ func (s *Server) trashPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page := TrashPage{
-		Version: s.version, Report: report,
+		Version: s.version, Page: "trash", Report: report,
 		TrashLimit: s.cfg.Trash.MaxSizeGB,
 		Retention:  s.cfg.Trash.Retention.Std().String(),
 	}
@@ -322,6 +324,7 @@ type TabLink struct {
 
 type Status struct {
 	Version       string
+	Page          string
 	Paused        bool
 	WritesEnabled bool
 	Tab           string

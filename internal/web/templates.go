@@ -22,6 +22,7 @@ body { font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif
 nav { display:flex; gap:.2rem; background:#ece6da; padding:.25rem; border-radius:10px; }
 nav a { padding:.35rem .75rem; border-radius:7px; color:#3f3a33; font-weight:500; }
 nav a:hover { background:#fffdf9; color:var(--text); text-decoration:none; }
+nav a.active { background:#fffdf9; color:var(--text); box-shadow:0 1px 2px rgba(15,23,42,.1); }
 a { color:var(--accent); text-decoration:none; }
 a:hover { text-decoration:underline; }
 h1 { font-size:1.35rem; margin:0 0 .3rem; }
@@ -129,11 +130,11 @@ td.actions form:last-child { margin-right:0; }
   <div class="brand">lessarr <span>v{{.Version}}</span></div>
   {{template "nav"}}
 </div>{{end}}
-{{define "nav"}}<nav><a href="/">Dashboard</a><a href="/files">Files</a><a href="/trash">Trash</a><a href="/metrics">Metrics</a></nav>{{end}}`
+{{define "nav"}}<nav><a class="{{if eq .Page "dashboard"}}active{{end}}" href="/">Dashboard</a><a class="{{if eq .Page "files"}}active{{end}}" href="/files">Files</a><a class="{{if eq .Page "trash"}}active{{end}}" href="/trash">Trash</a><a class="{{if eq .Page "metrics"}}active{{end}}" href="/metrics">Metrics</a></nav>{{end}}`
 
 const dashboardHTML = `{{define "dashboard"}}
 <div class="toolbar">
-<div><h1>Dashboard</h1><div class="muted">Encoding activity and recent savings</div></div>
+<div class="muted">Encoding activity and recent savings</div>
 <form method="post" action="{{if .Paused}}/api/resume{{else}}/api/pause{{end}}">
 <button class="secondary" type="submit" title="{{if .Paused}}Resume claiming jobs{{else}}Finish the current job, then stop claiming new jobs{{end}}">{{if .Paused}}Resume{{else}}Pause{{end}}</button>
 </form>
@@ -282,7 +283,7 @@ const pageHTML = `{{define "page"}}{{template "head"}}
 const filesHTML = `{{define "files"}}{{template "head"}}
 <style>.wrap { max-width:1500px; }</style>
 <div class="files-head">
-<div><h1>Files</h1><div class="muted">{{.Total}} matching · {{.Counts.Pending}} queued{{if .HasFilters}} · {{.ActiveFilters}} filter(s){{end}}</div></div>
+<div class="muted">{{.Total}} matching · {{.Counts.Pending}} queued{{if .HasFilters}} · {{.ActiveFilters}} filter(s){{end}}</div>
 <form class="file-filters" id="file-filters" method="get" action="/files">
 <select name="queue" aria-label="Queue filter">{{range .QueueOptions}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select>
 <select name="action" aria-label="Action filter">{{range .ActionOptions}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}</select>
@@ -415,7 +416,7 @@ const jobHTML = `{{define "job"}}{{template "head"}}
 
 const trashHTML = `{{define "trash"}}{{template "head"}}
 <div class="toolbar">
-<div><h1>Trash report</h1><div class="muted">Retained originals on disk compared with the database</div></div>
+<div class="muted">Retained originals on disk compared with the database</div>
 </div>
 
 <div class="stats">
@@ -471,7 +472,7 @@ Orphans are preserved, not deleted automatically — after database loss they ma
 
 const metricsHTML = `{{define "metrics"}}{{template "head"}}
 <div class="toolbar">
-<div><h1>Metrics</h1><div class="muted">5-minute samples · 30-day retention</div></div>
+<div class="muted">5-minute samples · 30-day retention</div>
 </div>
 {{if .Charts}}
 <div class="charts">

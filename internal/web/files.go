@@ -71,6 +71,7 @@ func (s *Server) filesPage(w http.ResponseWriter, r *http.Request) {
 		writable[lib.Name] = lib.Write
 	}
 	page := FilesPage{Status: status, Query: q, Total: total, Limit: q.Limit, Offset: q.Offset}
+	page.Page = "files"
 	for _, row := range rows {
 		view := FileView{FileRow: row}
 		switch {

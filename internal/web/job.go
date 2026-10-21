@@ -55,6 +55,7 @@ func (s *Server) restorable(job *queue.Job) bool {
 type JobPage struct {
 	*queue.Job
 	Version       string
+	Page          string
 	Analysis      *analysis.Result
 	HasComparison bool
 	CanRetry      bool
@@ -76,7 +77,7 @@ func (s *Server) jobPage(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	page := JobPage{Job: job, Version: s.version}
+	page := JobPage{Job: job, Version: s.version, Page: ""}
 	if _, err := os.Stat(filepath.Join(compare.Dir(s.cfg.Server.DB), strconv.FormatInt(job.ID, 10), "index.html")); err == nil {
 		page.HasComparison = true
 	}
