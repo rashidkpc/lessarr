@@ -59,8 +59,9 @@ button:hover { background:var(--accent); }
 button.secondary { background:#fffdf9; color:#1f1f1f; border:1px solid #1f1f1f; }
 button.secondary:hover { background:#fff1c7; }
 button.small { padding:.22rem .55rem; font-size:.8rem; border-radius:6px; }
-input[type=search], select { background:#fffdf9; color:var(--text); border:1px solid var(--border); border-radius:8px; padding:.45rem .7rem; font:inherit; }
+input[type=search], select { background:#fffdf9; color:var(--text); border:1px solid var(--border); border-radius:8px; height:2.6rem; padding:0 .7rem; font:inherit; line-height:1.4; }
 input[type=search] { min-width:min(280px,100%); }
+select { padding-right:1.8rem; }
 .files-head { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:.9rem; }
 .file-filters { display:flex; align-items:center; justify-content:flex-start; flex-wrap:nowrap; gap:.45rem; }
 .file-filters .clear { font-size:.85rem; white-space:nowrap; }
