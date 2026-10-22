@@ -756,6 +756,32 @@ func (s *Store) SuppressionReason(path string) (string, error) {
 	return reason, err
 }
 
+// SuppressionReasons returns the active suppression reason for each path.
+func (s *Store) SuppressionReasons(paths []string) (map[string]string, error) {
+	out := make(map[string]string, len(paths))
+	if len(paths) == 0 {
+		return out, nil
+	}
+	args := make([]any, len(paths))
+	for i, path := range paths {
+		args[i] = path
+	}
+	rows, err := s.db.Query(`SELECT path, reason FROM file_suppressions WHERE path IN (`+
+		placeholders(len(paths))+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var path, reason string
+		if err := rows.Scan(&path, &reason); err != nil {
+			return nil, err
+		}
+		out[path] = reason
+	}
+	return out, rows.Err()
+}
+
 // MarkSkipped turns a failed job into an operator skip and suppresses its path.
 func (s *Store) MarkSkipped(jobID int64, path, reason string, size, mtime int64) error {
 	now := time.Now()

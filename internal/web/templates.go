@@ -247,7 +247,7 @@ const dashboardHTML = `{{define "dashboard"}}
 <td><span class="badge">{{.Action}}</span></td>
 <td class="nowrap">{{sizeEstimate .SizeBefore .EstimatedBytes .SavingsUnmeasured}}</td>
 <td class="muted nowrap">{{when .CreatedAt}}</td>
-<td><span class="badge {{if eq .WaitStatus "Ready"}}ok{{else if or (eq .WaitStatus "Retry scheduled") (eq .WaitStatus "Paused") (eq .WaitStatus "Ready to retry")}}warn{{else if eq .WaitStatus "Library not writable"}}err{{end}}">{{.WaitStatus}}</span>{{if .WaitDetail}}<div class="queue-detail muted">{{.WaitDetail}}</div>{{end}}{{if .Error}}<div class="queue-detail muted" title="{{.Error}}">{{.Error}}</div>{{end}}</td>
+<td><span class="badge {{if eq .WaitStatus "Ready"}}ok{{else if or (eq .WaitStatus "Retry scheduled") (eq .WaitStatus "Paused") (eq .WaitStatus "Ready to retry") (eq .WaitStatus "Skipped")}}warn{{else if eq .WaitStatus "Library not writable"}}err{{end}}">{{.WaitStatus}}</span>{{if .WaitDetail}}<div class="queue-detail muted">{{.WaitDetail}}</div>{{end}}{{if .Error}}<div class="queue-detail muted" title="{{.Error}}">{{.Error}}</div>{{end}}</td>
 <td class="actions"><form method="post" action="/api/jobs/{{.ID}}/prioritize?tab=queued"><button class="secondary small" type="submit" title="Move this job to the top of the queue">Prioritize</button></form></td>
 </tr>
 {{else}}

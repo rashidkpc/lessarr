@@ -87,6 +87,14 @@ func TestQueuedTableExplainsWait(t *testing.T) {
 		Reason: "h264 video", SizeBefore: 1234}); err != nil {
 		t.Fatal(err)
 	}
+	suppressedPath := "/media/movies/Suppressed.mkv"
+	if _, err := s.store.Enqueue(queue.Job{Path: suppressedPath, Library: "Movies", Action: "transcode",
+		Reason: "h264 video", SizeBefore: 1234}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.store.Suppress(suppressedPath, queue.OperatorSkipReason, 1234, 0); err != nil {
+		t.Fatal(err)
+	}
 	req := httptest.NewRequest(http.MethodGet, "/?tab=queued", nil)
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, req)
@@ -95,7 +103,7 @@ func TestQueuedTableExplainsWait(t *testing.T) {
 	}
 	body := w.Body.String()
 	for _, want := range []string{"Status", "Retry scheduled", "attempt 1", "next attempt at",
-		"temporary: NAS unavailable", "Library not writable"} {
+		"temporary: NAS unavailable", "Library not writable", "Skipped", "skipped by operator"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("queued page missing %q", want)
 		}

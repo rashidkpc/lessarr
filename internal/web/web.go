@@ -610,8 +610,19 @@ func (s *Server) collect() (Status, error) {
 			writableSet[lib.Name] = true
 		}
 	}
+	suppressed := make(map[string]string, len(queued))
+	if len(queued) > 0 {
+		paths := make([]string, len(queued))
+		for i := range queued {
+			paths[i] = queued[i].Path
+		}
+		suppressed, err = s.store.SuppressionReasons(paths)
+		if err != nil {
+			return Status{}, err
+		}
+	}
 	now = time.Now()
-	decorateQueued(queued, paused, current, writableSet, now)
+	decorateQueued(queued, paused, current, writableSet, suppressed, now)
 	upNext, err := s.store.NextQueued(now, 5, writable...)
 	if err != nil {
 		return Status{}, err
@@ -641,27 +652,39 @@ func (s *Server) collect() (Status, error) {
 // decorateQueued explains why a pending job is not running yet. A retry
 // backoff is the common case, but paused processing, observe-only libraries,
 // and the single worker slot are also visible in the queue table.
-func decorateQueued(jobs []queue.Job, paused bool, current *queue.Job, writable map[string]bool, now time.Time) {
+func decorateQueued(jobs []queue.Job, paused bool, current *queue.Job, writable map[string]bool, suppressed map[string]string, now time.Time) {
 	for i := range jobs {
 		j := &jobs[i]
 		delayed := j.NextAttemptAt.After(now)
+		reason := suppressed[j.Path]
 		var details []string
 		switch {
+		case reason != "":
+			j.WaitStatus = "Skipped"
 		case !writable[j.Library]:
 			j.WaitStatus = "Library not writable"
-			details = append(details, "library is observe-only")
 		case paused:
 			j.WaitStatus = "Paused"
-			details = append(details, "processing is paused")
 		case delayed:
 			j.WaitStatus = "Retry scheduled"
 		case current != nil:
 			j.WaitStatus = "Waiting"
-			details = append(details, "current job is running")
 		case j.Attempts > 0:
 			j.WaitStatus = "Ready to retry"
 		default:
 			j.WaitStatus = "Ready"
+		}
+		if reason != "" {
+			details = append(details, "suppressed: "+reason)
+		}
+		if !writable[j.Library] {
+			details = append(details, "library is observe-only")
+		}
+		if paused && reason == "" {
+			details = append(details, "processing is paused")
+		}
+		if current != nil && !delayed && !paused && writable[j.Library] && reason == "" {
+			details = append(details, "current job is running")
 		}
 		if j.Attempts > 0 {
 			details = append(details, fmt.Sprintf("attempt %d", j.Attempts))
