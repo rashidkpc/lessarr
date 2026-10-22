@@ -603,12 +603,15 @@ func (s *Server) collect() (Status, error) {
 		failed = []queue.Job{}
 	}
 	writable := make([]string, 0, len(s.cfg.Libraries))
+	writableSet := make(map[string]bool, len(s.cfg.Libraries))
 	for _, lib := range s.cfg.Libraries {
 		if lib.Write {
 			writable = append(writable, lib.Name)
+			writableSet[lib.Name] = true
 		}
 	}
 	now = time.Now()
+	decorateQueued(queued, paused, current, writableSet, now)
 	upNext, err := s.store.NextQueued(now, 5, writable...)
 	if err != nil {
 		return Status{}, err
@@ -633,6 +636,55 @@ func (s *Server) collect() (Status, error) {
 		Saved30d: saved30d, Done30d: done30d, Ready: ready, WritesEnabled: len(writable) > 0,
 	}
 	return status, nil
+}
+
+// decorateQueued explains why a pending job is not running yet. A retry
+// backoff is the common case, but paused processing, observe-only libraries,
+// and the single worker slot are also visible in the queue table.
+func decorateQueued(jobs []queue.Job, paused bool, current *queue.Job, writable map[string]bool, now time.Time) {
+	for i := range jobs {
+		j := &jobs[i]
+		delayed := j.NextAttemptAt.After(now)
+		var details []string
+		switch {
+		case !writable[j.Library]:
+			j.WaitStatus = "Library not writable"
+			details = append(details, "library is observe-only")
+		case paused:
+			j.WaitStatus = "Paused"
+			details = append(details, "processing is paused")
+		case delayed:
+			j.WaitStatus = "Retry scheduled"
+		case current != nil:
+			j.WaitStatus = "Waiting"
+			details = append(details, "current job is running")
+		case j.Attempts > 0:
+			j.WaitStatus = "Ready to retry"
+		default:
+			j.WaitStatus = "Ready"
+		}
+		if j.Attempts > 0 {
+			details = append(details, fmt.Sprintf("attempt %d", j.Attempts))
+		}
+		if delayed {
+			details = append(details, "next attempt at "+j.NextAttemptAt.Format("15:04")+
+				" (in "+humanWait(j.NextAttemptAt.Sub(now))+")")
+		}
+		j.WaitDetail = strings.Join(details, " · ")
+	}
+}
+
+func humanWait(d time.Duration) string {
+	if d <= 0 {
+		return "now"
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Round(time.Second).Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
 }
 
 func sizePair(before, after int64) string {

@@ -46,9 +46,12 @@ type Job struct {
 	UpdatedAt         time.Time
 	StartedAt         time.Time
 	FinishedAt        time.Time
-	// Retryable and Restorable are UI hints; they are not persisted.
-	Retryable  bool `json:"-"`
-	Restorable bool `json:"-"`
+	NextAttemptAt     time.Time `json:"-"`
+	// Retryable, Restorable, and the queue wait hints are UI-only.
+	Retryable  bool   `json:"-"`
+	Restorable bool   `json:"-"`
+	WaitStatus string `json:"-"`
+	WaitDetail string `json:"-"`
 	// Restored distinguishes an operator undo from a retryable failure.
 	Restored bool `json:"-"`
 }
@@ -407,7 +410,7 @@ func (s *Store) Claim(now time.Time, writable ...string) (*Job, error) {
 	defer tx.Rollback()
 
 	query := `SELECT id, path, library, state, action, codec, reason, size_before, size_after, estimated_bytes, savings_unmeasured,
-		attempts, error, backup, created_at, updated_at, started_at, finished_at
+		attempts, error, backup, created_at, updated_at, started_at, finished_at, next_attempt_at
 		FROM jobs WHERE state = 'pending' AND next_attempt_at <= ?`
 	args := []any{now.Unix()}
 	if len(writable) > 0 {
@@ -420,10 +423,10 @@ func (s *Store) Claim(now time.Time, writable ...string) (*Job, error) {
 	query += ` ORDER BY priority DESC, id ASC LIMIT 1`
 
 	var j Job
-	var created, updated, started, finished, unmeasured int64
+	var created, updated, started, finished, next, unmeasured int64
 	err = tx.QueryRow(query, args...).
 		Scan(&j.ID, &j.Path, &j.Library, &j.State, &j.Action, &j.Codec, &j.Reason, &j.SizeBefore, &j.SizeAfter,
-			&j.EstimatedBytes, &unmeasured, &j.Attempts, &j.Error, &j.Backup, &created, &updated, &started, &finished)
+			&j.EstimatedBytes, &unmeasured, &j.Attempts, &j.Error, &j.Backup, &created, &updated, &started, &finished, &next)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -450,6 +453,9 @@ func (s *Store) Claim(now time.Time, writable ...string) (*Job, error) {
 	j.UpdatedAt = now
 	j.CreatedAt = time.Unix(created, 0)
 	j.FinishedAt = time.Unix(finished, 0)
+	if next > 0 {
+		j.NextAttemptAt = time.Unix(next, 0)
+	}
 	return &j, nil
 }
 
@@ -676,7 +682,7 @@ func (s *Store) FilesSummary() (map[string]Summary, error) {
 // Backups returns successful jobs that still claim a retained original.
 func (s *Store) Backups() ([]Job, error) {
 	rows, err := s.db.Query(`SELECT id, path, library, state, action, codec, reason, size_before, size_after, estimated_bytes, savings_unmeasured,
-		attempts, error, backup, created_at, updated_at, started_at, finished_at
+		attempts, error, backup, created_at, updated_at, started_at, finished_at, next_attempt_at
 		FROM jobs WHERE state='done' AND backup <> '' ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -841,7 +847,7 @@ func (s *Store) ByStatesPage(states []State, limit, offset int) ([]Job, error) {
 		return nil, nil
 	}
 	query := `SELECT id, path, library, state, action, codec, reason, size_before, size_after, estimated_bytes, savings_unmeasured,
-		attempts, error, backup, created_at, updated_at, started_at, finished_at
+		attempts, error, backup, created_at, updated_at, started_at, finished_at, next_attempt_at
 		FROM jobs WHERE state IN (` + placeholders(len(states)) + `)
 		ORDER BY CASE WHEN finished_at > 0 THEN finished_at ELSE updated_at END DESC, id DESC
 		LIMIT ? OFFSET ?`
@@ -969,7 +975,7 @@ func (s *Store) HasActiveJob(path string) (bool, error) {
 
 func (s *Store) ActiveJob(path string) (*Job, error) {
 	row := s.db.QueryRow(`SELECT id, path, library, state, action, codec, reason, size_before, size_after, estimated_bytes, savings_unmeasured,
-		attempts, error, backup, created_at, updated_at, started_at, finished_at
+		attempts, error, backup, created_at, updated_at, started_at, finished_at, next_attempt_at
 		FROM jobs WHERE path=? AND state IN ('pending','running') ORDER BY id LIMIT 1`, path)
 	j, err := scanJob(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -991,7 +997,7 @@ func (s *Store) ResetPendingForRetry(jobID int64, library, codec string, size in
 
 func (s *Store) DoneTranscodes() ([]Job, error) {
 	rows, err := s.db.Query(`SELECT id, path, library, state, action, codec, reason, size_before, size_after, estimated_bytes, savings_unmeasured,
-		attempts, error, backup, created_at, updated_at, started_at, finished_at
+		attempts, error, backup, created_at, updated_at, started_at, finished_at, next_attempt_at
 		FROM jobs WHERE state='done' AND action='transcode' AND backup <> '' ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -1032,7 +1038,7 @@ func (s *Store) NextQueued(now time.Time, limit int, writable ...string) ([]Job,
 		return nil, nil
 	}
 	query := `SELECT id, path, library, state, action, codec, reason, size_before, size_after, estimated_bytes, savings_unmeasured,
-		attempts, error, backup, created_at, updated_at, started_at, finished_at
+		attempts, error, backup, created_at, updated_at, started_at, finished_at, next_attempt_at
 		FROM jobs WHERE state = 'pending' AND next_attempt_at <= ?
 		AND NOT EXISTS (SELECT 1 FROM file_suppressions WHERE path = jobs.path)
 		AND library IN (` + placeholders(len(writable)) + `) ORDER BY priority DESC, id ASC LIMIT ?`
@@ -1069,7 +1075,7 @@ func (s *Store) ByState(state State, limit int) ([]Job, error) {
 		order = "id ASC"
 	}
 	rows, err := s.db.Query(`SELECT id, path, library, state, action, codec, reason, size_before, size_after, estimated_bytes, savings_unmeasured,
-		attempts, error, backup, created_at, updated_at, started_at, finished_at
+		attempts, error, backup, created_at, updated_at, started_at, finished_at, next_attempt_at
 		FROM jobs WHERE state = ? ORDER BY `+order+` LIMIT ?`, state, limit)
 	if err != nil {
 		return nil, err
@@ -1088,7 +1094,7 @@ func (s *Store) ByState(state State, limit int) ([]Job, error) {
 
 func (s *Store) Recent(limit int) ([]Job, error) {
 	rows, err := s.db.Query(`SELECT id, path, library, state, action, codec, reason, size_before, size_after, estimated_bytes, savings_unmeasured,
-		attempts, error, backup, created_at, updated_at, started_at, finished_at
+		attempts, error, backup, created_at, updated_at, started_at, finished_at, next_attempt_at
 		FROM jobs ORDER BY id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -1108,7 +1114,7 @@ func (s *Store) Recent(limit int) ([]Job, error) {
 // Job returns one job by ID, or nil when it does not exist.
 func (s *Store) Job(id int64) (*Job, error) {
 	row := s.db.QueryRow(`SELECT id, path, library, state, action, codec, reason, size_before, size_after, estimated_bytes, savings_unmeasured,
-		attempts, error, backup, created_at, updated_at, started_at, finished_at
+		attempts, error, backup, created_at, updated_at, started_at, finished_at, next_attempt_at
 		FROM jobs WHERE id = ?`, id)
 	j, err := scanJob(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1122,7 +1128,7 @@ func (s *Store) Job(id int64) (*Job, error) {
 
 func (s *Store) Current() (*Job, error) {
 	row := s.db.QueryRow(`SELECT id, path, library, state, action, codec, reason, size_before, size_after, estimated_bytes, savings_unmeasured,
-		attempts, error, backup, created_at, updated_at, started_at, finished_at
+		attempts, error, backup, created_at, updated_at, started_at, finished_at, next_attempt_at
 		FROM jobs WHERE state='running' ORDER BY id LIMIT 1`)
 	j, err := scanJob(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1140,9 +1146,9 @@ type scanner interface {
 
 func scanJob(row scanner) (Job, error) {
 	var j Job
-	var created, updated, started, finished, unmeasured int64
+	var created, updated, started, finished, next, unmeasured int64
 	err := row.Scan(&j.ID, &j.Path, &j.Library, &j.State, &j.Action, &j.Codec, &j.Reason, &j.SizeBefore, &j.SizeAfter,
-		&j.EstimatedBytes, &unmeasured, &j.Attempts, &j.Error, &j.Backup, &created, &updated, &started, &finished)
+		&j.EstimatedBytes, &unmeasured, &j.Attempts, &j.Error, &j.Backup, &created, &updated, &started, &finished, &next)
 	if err != nil {
 		return j, err
 	}
@@ -1155,6 +1161,9 @@ func scanJob(row scanner) (Job, error) {
 	}
 	if finished > 0 {
 		j.FinishedAt = time.Unix(finished, 0)
+	}
+	if next > 0 {
+		j.NextAttemptAt = time.Unix(next, 0)
 	}
 	return j, nil
 }

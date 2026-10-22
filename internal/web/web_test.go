@@ -68,6 +68,40 @@ func TestStatusPageTabs(t *testing.T) {
 	}
 }
 
+func TestQueuedTableExplainsWait(t *testing.T) {
+	s := testServer(t)
+	s.cfg.Libraries[0].Write = true
+	path := "/media/movies/Retry.mkv"
+	if _, err := s.store.Enqueue(queue.Job{Path: path, Library: "Movies", Action: "transcode",
+		Reason: "h264 video", SizeBefore: 1234}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := s.store.Claim(time.Now())
+	if err != nil || job == nil {
+		t.Fatal(err)
+	}
+	if err := s.store.Fail(job.ID, 1, 3, "temporary: NAS unavailable", 10*time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.store.Enqueue(queue.Job{Path: "/media/tv/Other.mkv", Library: "TV", Action: "transcode",
+		Reason: "h264 video", SizeBefore: 1234}); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/?tab=queued", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	body := w.Body.String()
+	for _, want := range []string{"Status", "Retry scheduled", "attempt 1", "next attempt at",
+		"temporary: NAS unavailable", "Library not writable"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("queued page missing %q", want)
+		}
+	}
+}
+
 func TestJobPage(t *testing.T) {
 	s := testServer(t)
 	path := "/media/movies/Example.mkv"

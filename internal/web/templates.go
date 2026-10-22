@@ -55,6 +55,7 @@ th { font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; color:#9a
 tr:last-child td { border-bottom:0; }
 tbody tr:hover td { background:#f7f2e9; }
 .badge { display:inline-block; padding:.12rem .5rem; border-radius:999px; background:#ece6da; color:#3f3a33; font-size:.8rem; font-weight:500; margin-right:.3rem; }
+.queue-detail { font-size:.78rem; margin-top:.2rem; line-height:1.35; overflow-wrap:anywhere; }
 .ok { background:var(--ok-bg); color:var(--ok); }
 .warn { background:var(--warn-bg); color:var(--warn); }
 .err { background:var(--err-bg); color:var(--err); }
@@ -237,7 +238,7 @@ const dashboardHTML = `{{define "dashboard"}}
 
 {{else if eq .Tab "queued"}}
 <div class="table-wrap"><table>
-<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th class="nowrap">Size</th><th class="nowrap">Queued</th><th></th></tr>
+<tr><th>#</th><th>File</th><th>Library</th><th>Action</th><th class="nowrap">Size</th><th class="nowrap">Queued</th><th>Status</th><th></th></tr>
 {{range .Queued}}
 <tr>
 <td><a href="/jobs/{{.ID}}">{{.ID}}</a></td>
@@ -246,10 +247,11 @@ const dashboardHTML = `{{define "dashboard"}}
 <td><span class="badge">{{.Action}}</span></td>
 <td class="nowrap">{{sizeEstimate .SizeBefore .EstimatedBytes .SavingsUnmeasured}}</td>
 <td class="muted nowrap">{{when .CreatedAt}}</td>
+<td><span class="badge {{if eq .WaitStatus "Ready"}}ok{{else if or (eq .WaitStatus "Retry scheduled") (eq .WaitStatus "Paused") (eq .WaitStatus "Ready to retry")}}warn{{else if eq .WaitStatus "Library not writable"}}err{{end}}">{{.WaitStatus}}</span>{{if .WaitDetail}}<div class="queue-detail muted">{{.WaitDetail}}</div>{{end}}{{if .Error}}<div class="queue-detail muted" title="{{.Error}}">{{.Error}}</div>{{end}}</td>
 <td class="actions"><form method="post" action="/api/jobs/{{.ID}}/prioritize?tab=queued"><button class="secondary small" type="submit" title="Move this job to the top of the queue">Prioritize</button></form></td>
 </tr>
 {{else}}
-<tr><td colspan="7" class="muted">Queue is empty.</td></tr>
+<tr><td colspan="8" class="muted">Queue is empty.</td></tr>
 {{end}}
 </table></div>
 {{if gt .Counts.Pending (len .Queued)}}<div class="muted" style="margin-top:.8rem"><a href="/files?queue=pending">View all queued files</a></div>{{end}}
